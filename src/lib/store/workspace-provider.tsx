@@ -24,6 +24,7 @@ import {
 } from "@/lib/automation/engine";
 import { syncSessionCookie } from "@/lib/auth/session-cookie";
 import { checkServerQuota } from "@/lib/billing/quota-client";
+import { getEffectivePageCount, getPublishedTotal } from "@/lib/billing/page-count";
 import { createDefaultFlow, normalizeChatbot } from "@/lib/chatbot/defaults";
 import type {
   AutomationAction,
@@ -64,21 +65,13 @@ function load(): VexaWorkspaceData | null {
   }
 }
 
-function getPublishedTotal(data: VexaWorkspaceData): number {
-  const fromPages = data.landingPages?.filter((p) => p.status === "published").length ?? 0;
-  const stored = data.workspace.landingPagesPublishedTotal ?? 0;
-  return Math.max(fromPages, stored);
-}
-
 function migrate(data: VexaWorkspaceData): VexaWorkspaceData {
   const plan = normalizePlanId(data.workspace?.plan);
+  const pageLen = data.landingPages?.length ?? 0;
   const publishedFromPages = data.landingPages?.filter((p) => p.status === "published").length ?? 0;
   const legacyCreated = data.workspace.landingPagesCreatedTotal ?? 0;
-  const publishedTotal = Math.max(
-    data.workspace.landingPagesPublishedTotal ?? 0,
-    publishedFromPages,
-    legacyCreated > 0 && publishedFromPages > 0 ? legacyCreated : publishedFromPages
-  );
+  const publishedTotal = Math.max(data.workspace.landingPagesPublishedTotal ?? 0, publishedFromPages);
+  const createdTotal = Math.max(legacyCreated, pageLen, data.workspace.serverPagesCreated ?? 0);
 
   return {
     ...data,
@@ -86,6 +79,7 @@ function migrate(data: VexaWorkspaceData): VexaWorkspaceData {
       ...data.workspace,
       plan,
       landingPagesPublishedTotal: publishedTotal,
+      landingPagesCreatedTotal: createdTotal,
     },
     messageLogs: data.messageLogs ?? [],
     domains: (data.domains ?? []).map((d) => ({ ...d })),
@@ -250,6 +244,51 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     };
   }, [ready, data?.workspace.id]);
 
+  useEffect(() => {
+    if (!ready || !data?.workspace.id) return;
+    const workspaceId = data.workspace.id;
+    let cancelled = false;
+    fetch(`/api/pages/quota?workspaceId=${encodeURIComponent(workspaceId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled || !json?.quota) return;
+        const serverCreated = json.quota.pagesCreated ?? 0;
+        const serverPublished = json.quota.pagesPublished ?? 0;
+        setData((prev) => {
+          if (!prev) return prev;
+          if (
+            prev.workspace.serverPagesCreated === serverCreated &&
+            prev.workspace.serverPagesPublished === serverPublished
+          ) {
+            return prev;
+          }
+          const next = {
+            ...prev,
+            workspace: {
+              ...prev.workspace,
+              serverPagesCreated: serverCreated,
+              serverPagesPublished: serverPublished,
+              landingPagesCreatedTotal: Math.max(
+                prev.workspace.landingPagesCreatedTotal ?? 0,
+                serverCreated,
+                prev.landingPages.length
+              ),
+              landingPagesPublishedTotal: Math.max(
+                prev.workspace.landingPagesPublishedTotal ?? 0,
+                serverPublished
+              ),
+            },
+          };
+          save(next);
+          return next;
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, data?.workspace.id]);
+
   const persist = useCallback((next: VexaWorkspaceData) => {
     setData(next);
     save(next);
@@ -361,6 +400,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         action: "create",
         planId: plan,
         confirm: true,
+        clientPageCount: getEffectivePageCount(data),
       });
       if (!quota.allowed) return "";
 
@@ -403,6 +443,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           : data.onboardingSteps;
       persist({
         ...data,
+        workspace: {
+          ...data.workspace,
+          landingPagesCreatedTotal: Math.max(
+            data.workspace.landingPagesCreatedTotal ?? 0,
+            data.landingPages.length + 1
+          ),
+        },
         landingPages: [...data.landingPages, page],
         onboardingSteps,
       });
@@ -440,6 +487,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           action: "create",
           planId: plan,
           confirm: true,
+          clientPageCount: getEffectivePageCount(data),
         });
         if (!quota.allowed) return "";
       }
@@ -496,6 +544,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
       persist({
         ...data,
+        workspace: {
+          ...data.workspace,
+          landingPagesCreatedTotal: Math.max(
+            data.workspace.landingPagesCreatedTotal ?? 0,
+            data.landingPages.length + 1
+          ),
+        },
         landingPages: [...data.landingPages, page],
         onboardingSteps,
       });
@@ -985,6 +1040,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return { pipelineValue, wonValue, winRate, avgDeal, byStage, recentLeads };
   }, [data]);
 
+  const effectivePageCount = useMemo(() => (data ? getEffectivePageCount(data) : 0), [data]);
   const publishedTotal = useMemo(() => (data ? getPublishedTotal(data) : 0), [data]);
   const pageCount = data?.landingPages.length ?? 0;
   const hasDraft = (data?.landingPages.some((p) => p.status === "draft") ?? false) && pageCount > 0;
@@ -992,22 +1048,22 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const canCreateLandingPage = useMemo(() => {
     if (!data) return false;
     const plan = normalizePlanId(data.workspace.plan);
-    return canCreatePage(plan, data.landingPages.length, getPublishedTotal(data));
-  }, [data]);
+    return canCreatePage(plan, pageCount, publishedTotal);
+  }, [data, pageCount, publishedTotal]);
 
   const canUseAIGenerationFlag = useMemo(() => {
     if (!data) return false;
     const plan = normalizePlanId(data.workspace.plan);
-    return canUseAIGeneration(plan, data.landingPages.length, getPublishedTotal(data));
-  }, [data]);
+    return canUseAIGeneration(plan, pageCount, publishedTotal, effectivePageCount);
+  }, [data, pageCount, publishedTotal, effectivePageCount]);
 
   const pageLimitReason = useMemo(() => {
-    if (!data || canCreateLandingPage) return null;
+    if (!data || canUseAIGenerationFlag) return null;
     return getPageLimitMessage(normalizePlanId(data.workspace.plan), true, {
       hasDraft,
       publishedTotal,
     });
-  }, [data, canCreateLandingPage, hasDraft, publishedTotal]);
+  }, [data, canUseAIGenerationFlag, hasDraft, publishedTotal]);
 
   const value: WorkspaceContextValue = {
     data,

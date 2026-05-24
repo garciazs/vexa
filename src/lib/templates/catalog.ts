@@ -421,15 +421,22 @@ export function canCreatePage(
   return max === Infinity || currentCount < max;
 }
 
-/** Permite gerar com IA enquanto ainda não publicou o site grátis (Free) ou há slot livre */
+/** Permite IA só enquanto ainda não criou o site grátis (Free) ou há slot no plano */
 export function canUseAIGeneration(
   plan: PlanId | string | undefined | null,
   currentCount: number,
-  publishedTotal?: number
+  publishedTotal?: number,
+  totalEverCreated?: number
 ): boolean {
-  if (canCreatePage(plan, currentCount, publishedTotal)) return true;
   const id = normalizePlanId(plan);
-  if (id === "free" && (publishedTotal ?? 0) < PLAN_LIMITS.free.maxPages) return true;
+  const max = PLAN_LIMITS[id].maxPages;
+
+  if (id === "free") {
+    const created = totalEverCreated ?? currentCount;
+    return created < max && currentCount < max;
+  }
+
+  if (canCreatePage(plan, currentCount, publishedTotal)) return true;
   return false;
 }
 
@@ -456,20 +463,17 @@ export function getPageLimitMessage(
   if (!atLimit) {
     const max = PLAN_LIMITS[id].maxPages;
     if (max === 1) {
-      return "Plano Free: use a IA para criar 1 site completo, edite e publique — tudo grátis.";
+      return "Plano Free: 1 site com IA — depois de criar, assine o VEXA para continuar.";
     }
     if (max === Infinity) return "Sites ilimitados neste plano.";
     return `Pode criar até ${max} sites neste plano.`;
   }
 
   if (id === "free") {
-    if (published >= PLAN_LIMITS.free.maxPages) {
-      return "Já publicou o seu site grátis. Assine um plano para criar mais landing pages.";
+    if (opts?.hasDraft || (opts?.publishedTotal ?? 0) === 0) {
+      return "Plano Free: 1 site criado. Assine o VEXA para gerar mais sites com IA, chatbots e automações.";
     }
-    if (opts?.hasDraft) {
-      return "Tem um rascunho em curso — edite, regenere com IA e publique antes de criar outro.";
-    }
-    return "Limite de rascunhos atingido neste plano. Edite o site existente ou publique-o.";
+    return "Site grátis publicado. Assine o VEXA para criar mais landing pages.";
   }
   const max = PLAN_LIMITS[id].maxPages;
   return `Limite atingido (${max} sites). Faça upgrade para criar mais.`;

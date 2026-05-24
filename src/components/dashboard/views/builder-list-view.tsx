@@ -83,7 +83,7 @@ export function BuilderListView() {
                     </div>
                     <p className="text-sm text-muted-foreground">
                       Descreva o negócio, cores e envie fotos — site completo pronto para publicar.
-                      {planId === "free" && publishedTotal === 0 && " Grátis até publicar 1 site."}
+                      {planId === "free" && publishedTotal === 0 && " 1 site grátis incluído no plano Free."}
                     </p>
                   </div>
                 </div>

@@ -63,11 +63,13 @@ export function PageLimitBanner({
             <Lock className="h-5 w-5 text-purple-bright" />
           </div>
           <div>
-            <p className="font-medium">Limite do plano atingido</p>
+            <p className="font-medium">
+              {planId === "free" ? "Seu site grátis já foi criado" : "Limite do plano atingido"}
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
             {planId === "free" && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Starter (€29) — 3 sites · Growth (€79) — ilimitados
+                Assine o VEXA para gerar mais sites com IA, chatbots e automações.
               </p>
             )}
           </div>
@@ -81,7 +83,7 @@ export function PageLimitBanner({
           <Button variant="green" size="sm" asChild>
             <Link href="/billing">
               <Crown className="h-4 w-4" />
-              Assinar plano
+              Assinar VEXA
             </Link>
           </Button>
         </div>

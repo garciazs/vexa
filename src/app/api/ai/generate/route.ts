@@ -33,10 +33,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const pageCount = typeof body.pageCount === "number" ? body.pageCount : 0;
+
     const check = await checkPageQuota({
       workspaceId,
       action: "generate",
       ipHash,
+      clientPageCount: pageCount,
     });
 
     if (!check.allowed) {

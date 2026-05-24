@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -25,7 +24,8 @@ import {
   getGenerationTier,
   type AIGeneratedPage,
 } from "@/lib/ai/page-generator";
-import { PageLimitBanner } from "@/components/dashboard/page-limit-banner";
+import { FreeUpgradeWall } from "@/components/dashboard/free-upgrade-wall";
+import { getEffectivePageCount } from "@/lib/billing/page-count";
 import { normalizePlanId } from "@/lib/templates/catalog";
 import { useWorkspace } from "@/lib/store/workspace-provider";
 import type { PlanId } from "@/lib/store/types";
@@ -66,6 +66,7 @@ export function AIBuilderView() {
   );
   const canCreateMorePages = canCreateLandingPage;
   const canUseAI = canUseAIGeneration;
+  const effectivePageCount = data ? getEffectivePageCount(data) : pageCount;
   const existingDraft = data?.landingPages.find((p) => p.status === "draft");
   const existingPageId = existingDraft?.id ?? data?.landingPages[0]?.id;
 
@@ -129,6 +130,7 @@ export function AIBuilderView() {
           body: JSON.stringify({
             prompt: text,
             workspaceId: data?.workspace.id,
+            pageCount: effectivePageCount,
             userImages: images,
           }),
         });
@@ -157,13 +159,13 @@ export function AIBuilderView() {
         submitLockRef.current = false;
       }
     },
-    [data?.workspace.id, generating]
+    [data?.workspace.id, effectivePageCount, generating]
   );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canUseAI) {
-      setError(pageLimitReason ?? "Limite de sites atingido. Faça upgrade em Billing.");
+      setError(pageLimitReason ?? "Limite do plano Free atingido. Assine o VEXA para continuar.");
       return;
     }
     const text = prompt.trim();
@@ -221,6 +223,15 @@ export function AIBuilderView() {
     }
   }
 
+  if (!canUseAI) {
+    return (
+      <>
+        <Header title="Criar site" description="Plano Free — 1 site com IA incluído" />
+        <FreeUpgradeWall planId={planId} existingPageId={existingPageId} />
+      </>
+    );
+  }
+
   return (
     <>
       <Header
@@ -228,17 +239,6 @@ export function AIBuilderView() {
         description="Descreva o negócio — receba um site profissional pronto para vender"
       />
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
-        {!canUseAI && (
-          <motion.div className="border-b border-border p-4 lg:hidden">
-            <PageLimitBanner
-              planId={planId}
-              pageCount={pageCount}
-              publishedTotal={publishedTotal}
-              atLimit
-              existingPageId={existingPageId}
-            />
-          </motion.div>
-        )}
         <div className="flex w-full flex-col border-b border-border lg:w-[440px] lg:shrink-0 lg:border-b-0 lg:border-r">
           <motion.div className="border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-2">
@@ -254,20 +254,6 @@ export function AIBuilderView() {
             <p className="mt-1.5 text-[11px] text-muted-foreground">{planHint}</p>
           </motion.div>
 
-          {!canUseAI ? (
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-              <PageLimitBanner
-                planId={planId}
-                pageCount={pageCount}
-                publishedTotal={publishedTotal}
-                atLimit
-                existingPageId={existingPageId}
-              />
-              <p className="mt-4 text-center text-xs text-muted-foreground">
-                Já publicou o seu site grátis. Edite-o no builder ou assine para gerar outro.
-              </p>
-            </div>
-          ) : (
           <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
             <div className="space-y-4">
               {messages.map((m) => (
@@ -309,10 +295,8 @@ export function AIBuilderView() {
               </AnimatePresence>
             </div>
           </div>
-          )}
 
-          {canUseAI && (
-          <div className="border-t border-border p-4">
+          <motion.div className="border-t border-border p-4">
             <div className="mb-3">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground">As suas fotos</p>
@@ -391,8 +375,7 @@ export function AIBuilderView() {
               </Button>
             </form>
             {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-          </div>
-          )}
+          </motion.div>
         </div>
 
         <div className="flex flex-1 flex-col overflow-hidden bg-[#030304]">
@@ -417,7 +400,7 @@ export function AIBuilderView() {
                 </>
               )}
             </div>
-            {result && canUseAI && (
+            {result && (
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -444,26 +427,7 @@ export function AIBuilderView() {
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {!canUseAI ? (
-              <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-4 px-8 text-center">
-                <p className="text-sm text-zinc-400">
-                  {planId === "free"
-                    ? "Já publicou o seu site grátis. Edite-o no builder ou assine para gerar outro."
-                    : "Limite de sites atingido neste plano."}
-                </p>
-                {existingPageId && (
-                  <Button variant="green" asChild>
-                    <Link href={`/builder/${existingPageId}`}>
-                      <Pencil className="h-4 w-4" />
-                      Abrir o meu site
-                    </Link>
-                  </Button>
-                )}
-                <Button variant="outline" asChild>
-                  <Link href="/billing">Ver planos</Link>
-                </Button>
-              </div>
-            ) : result ? (
+            {result ? (
               <PageRenderer blocks={result.blocks} theme={result.theme} />
             ) : (
               <div className="flex h-full min-h-[420px] flex-col items-center justify-center px-8 text-center">

@@ -49,11 +49,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const clientPageCount =
+      typeof body.clientPageCount === "number" ? body.clientPageCount : undefined;
+
     const check = await checkPageQuota({
       workspaceId,
       action,
       ipHash,
       replaceExisting,
+      clientPageCount,
     });
 
     if (!check.allowed) {

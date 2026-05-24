@@ -16,6 +16,7 @@ export async function checkServerQuota(params: {
   replaceExisting?: boolean;
   planId?: PlanId;
   confirm?: boolean;
+  clientPageCount?: number;
 }): Promise<QuotaClientResult> {
   try {
     const res = await fetch("/api/pages/quota", {

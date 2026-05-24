@@ -149,10 +149,13 @@ export interface WorkspaceRecord {
   slug: string;
   plan: PlanId;
   domain?: string;
-  /** Total de sites já publicados (Free: bloqueia 2.º site após publicar 1) */
+  /** Total de sites já publicados (Free: 1 publicação) */
   landingPagesPublishedTotal?: number;
-  /** @deprecated migrado para landingPagesPublishedTotal */
+  /** Total de sites já criados — Free bloqueia IA após 1 */
   landingPagesCreatedTotal?: number;
+  /** Quota sincronizada do servidor (anti-bypass) */
+  serverPagesCreated?: number;
+  serverPagesPublished?: number;
 }
 
 export interface NotificationPrefs {

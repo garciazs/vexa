@@ -70,6 +70,7 @@ export async function checkPageQuota(params: {
   action: QuotaAction;
   ipHash?: string;
   replaceExisting?: boolean;
+  clientPageCount?: number;
 }): Promise<QuotaCheckResult> {
   const planId = await resolvePlanForWorkspace(params.workspaceId);
   const id = normalizePlanId(planId);
@@ -83,10 +84,12 @@ export async function checkPageQuota(params: {
   };
 
   const base = { quota, planId: id };
+  const clientCount = params.clientPageCount ?? 0;
+  const effectiveCreated = Math.max(quota.pagesCreated, clientCount);
 
   if (params.action === "create") {
     if (params.replaceExisting) return { allowed: true, ...base };
-    if (maxPages !== Infinity && quota.pagesCreated >= maxPages) {
+    if (maxPages !== Infinity && effectiveCreated >= maxPages) {
       return {
         allowed: false,
         code: "PAGE_LIMIT",
@@ -134,12 +137,15 @@ export async function checkPageQuota(params: {
     return { allowed: true, ...base };
   }
 
-  // generate — preview IA
-  if (id === "free" && quota.pagesPublished >= 1) {
+  // generate — preview IA (Free: bloqueia após 1 site criado)
+  if (maxPages !== Infinity && effectiveCreated >= maxPages) {
     return {
       allowed: false,
       code: "PAGE_LIMIT",
-      message: "Plano Free: site grátis já publicado. Assine para gerar mais.",
+      message:
+        id === "free"
+          ? "Plano Free: já criou o seu site grátis. Assine o VEXA para gerar mais com IA."
+          : `Limite de sites do plano atingido (${maxPages}).`,
       ...base,
     };
   }
