@@ -23,6 +23,7 @@ import {
   runAutomationsForTrigger,
 } from "@/lib/automation/engine";
 import { syncSessionCookie } from "@/lib/auth/session-cookie";
+import { checkServerQuota } from "@/lib/billing/quota-client";
 import { createDefaultFlow, normalizeChatbot } from "@/lib/chatbot/defaults";
 import type {
   AutomationAction,
@@ -150,14 +151,14 @@ interface WorkspaceContextValue {
   createLandingPage: (opts?: {
     name?: string;
     templateId?: string;
-  }) => string;
+  }) => Promise<string>;
   createLandingPageFromAI: (input: {
     name: string;
     slug: string;
     blocks: PageBlock[];
     theme?: LandingPageRecord["theme"];
     replacePageId?: string;
-  }) => string;
+  }) => Promise<string>;
   updateLandingPage: (
     id: string,
     patch: Partial<Pick<LandingPageRecord, "name" | "slug" | "blocks" | "status">>
@@ -345,7 +346,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createLandingPage = useCallback(
-    (opts?: { name?: string; templateId?: string }) => {
+    async (opts?: { name?: string; templateId?: string }) => {
       if (!data) return "";
       const plan = normalizePlanId(data.workspace.plan);
       const publishedTotal = getPublishedTotal(data);
@@ -354,6 +355,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const tpl = getTemplate(opts.templateId);
         if (!tpl || !canUseTemplate(plan, tpl)) return "";
       }
+
+      const quota = await checkServerQuota({
+        workspaceId: data.workspace.id,
+        action: "create",
+        planId: plan,
+        confirm: true,
+      });
+      if (!quota.allowed) return "";
 
       const name = opts?.name ?? "Nova landing page";
       let blocks = [createBlock("hero", "Hero Section")];
@@ -403,7 +412,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createLandingPageFromAI = useCallback(
-    (input: {
+    async (input: {
       name: string;
       slug: string;
       blocks: LandingPageRecord["blocks"];
@@ -423,6 +432,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (replaceTarget.status === "published") return "";
       } else if (!canCreatePage(plan, pageCount, publishedTotal)) {
         return "";
+      }
+
+      if (!replaceTarget) {
+        const quota = await checkServerQuota({
+          workspaceId: data.workspace.id,
+          action: "create",
+          planId: plan,
+          confirm: true,
+        });
+        if (!quota.allowed) return "";
       }
 
       let slug = slugify(input.slug) || slugify(input.name) || "landing-ia";
@@ -515,6 +534,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const page = data.landingPages.find((p) => p.id === id);
       if (!page) return null;
 
+      const wasPublished = page.status === "published";
+      const plan = normalizePlanId(data.workspace.plan);
+
+      if (!wasPublished) {
+        const quota = await checkServerQuota({
+          workspaceId: data.workspace.id,
+          action: "publish",
+          planId: plan,
+        });
+        if (!quota.allowed) return null;
+      }
+
       const linkedDomain = data.domains.find((d) => d.linkedPageId === id);
       const theme =
         page.theme ??
@@ -523,7 +554,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const publishedAt = new Date().toISOString();
 
       try {
-        await fetch("/api/pages/publish", {
+        const res = await fetch("/api/pages/publish", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -536,6 +567,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             publishedAt,
           }),
         });
+        if (!res.ok) return null;
         if (linkedDomain?.dnsVerified) {
           await fetch("/api/domains/link", {
             method: "POST",
@@ -548,14 +580,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           });
         }
       } catch {
-        /* local publish still works */
+        return null;
       }
 
       const onboardingSteps = data.onboardingSteps.includes("publish")
         ? data.onboardingSteps
         : [...data.onboardingSteps, "publish"];
 
-      const wasPublished = page.status === "published";
       const publishedTotal = getPublishedTotal(data);
 
       persist({

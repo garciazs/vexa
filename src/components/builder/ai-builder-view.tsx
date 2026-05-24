@@ -52,6 +52,8 @@ export function AIBuilderView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
+  const saveLockRef = useRef(false);
   const { data, createLandingPageFromAI, canCreateLandingPage, canUseAIGeneration, pageLimitReason } =
     useWorkspace();
   const planId = normalizePlanId(data?.workspace.plan) as PlanId;
@@ -98,6 +100,8 @@ export function AIBuilderView() {
 
   const runGeneration = useCallback(
     async (text: string, images: string[]) => {
+      if (submitLockRef.current || generating) return;
+      submitLockRef.current = true;
       setError(null);
       setResult(null);
       setGenerating(true);
@@ -124,9 +128,7 @@ export function AIBuilderView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             prompt: text,
-            planId,
-            pageCount,
-            publishedTotal,
+            workspaceId: data?.workspace.id,
             userImages: images,
           }),
         });
@@ -152,9 +154,10 @@ export function AIBuilderView() {
       } finally {
         clearInterval(stepTimer);
         setGenerating(false);
+        submitLockRef.current = false;
       }
     },
-    [planId, pageCount, publishedTotal]
+    [data?.workspace.id, generating]
   );
 
   function handleSubmit(e: React.FormEvent) {
@@ -191,26 +194,31 @@ export function AIBuilderView() {
       });
   }
 
-  function handleOpenInBuilder() {
-    if (!result) return;
+  async function handleOpenInBuilder() {
+    if (!result || saveLockRef.current) return;
     if (!canUseAI) {
       setError(pageLimitReason ?? "Limite de sites atingido.");
       return;
     }
+    saveLockRef.current = true;
     const replacePageId =
       !canCreateMorePages && existingDraft ? existingDraft.id : undefined;
-    const id = createLandingPageFromAI({
-      name: result.name,
-      slug: result.slug,
-      blocks: result.blocks,
-      theme: result.theme,
-      replacePageId,
-    });
-    if (!id) {
-      setError(pageLimitReason ?? "Não foi possível guardar — limite do plano atingido.");
-      return;
+    try {
+      const id = await createLandingPageFromAI({
+        name: result.name,
+        slug: result.slug,
+        blocks: result.blocks,
+        theme: result.theme,
+        replacePageId,
+      });
+      if (!id) {
+        setError(pageLimitReason ?? "Não foi possível guardar — limite do plano atingido.");
+        return;
+      }
+      router.push(`/builder/${id}`);
+    } finally {
+      saveLockRef.current = false;
     }
-    router.push(`/builder/${id}`);
   }
 
   return (

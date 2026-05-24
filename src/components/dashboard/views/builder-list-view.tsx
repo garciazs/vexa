@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Crown, Layers, Plus, Sparkles, Wand2 } from "lucide-react";
@@ -34,14 +35,21 @@ export function BuilderListView() {
   const canUseAI = canUseAIGeneration;
   const firstPageId = pages[0]?.id;
 
-  function handleNewPage() {
-    if (!canCreateMore) return;
-    const id = createLandingPage();
-    if (!id) {
-      alert("Limite de sites atingido no seu plano. Faça upgrade em Billing.");
-      return;
+  const [creating, setCreating] = useState(false);
+
+  async function handleNewPage() {
+    if (!canCreateMore || creating) return;
+    setCreating(true);
+    try {
+      const id = await createLandingPage();
+      if (!id) {
+        alert("Limite de sites atingido no seu plano. Faça upgrade em Billing.");
+        return;
+      }
+      router.push(`/builder/${id}`);
+    } finally {
+      setCreating(false);
     }
-    router.push(`/builder/${id}`);
   }
 
   return (
@@ -135,7 +143,7 @@ export function BuilderListView() {
                     IA
                   </Link>
                 </Button>
-                <Button onClick={handleNewPage}>
+                <Button onClick={handleNewPage} disabled={creating || !canCreateMore}>
                   <Plus className="h-4 w-4" />
                   Nova página
                 </Button>

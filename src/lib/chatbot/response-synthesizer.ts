@@ -138,55 +138,21 @@ export function findPlanInHistory(history: ConversationTurn[]): string | undefin
   return undefined;
 }
 
-/** Resolve follow-up usando tópico anterior */
+/** Resolve follow-up usando plano em contexto — sem RAG amplo */
 export function resolveFollowUpAnswer(
   userText: string,
   context: ConversationContext,
-  history: ConversationTurn[],
-  knowledge: KnowledgeItem[]
+  history: ConversationTurn[]
 ): string | null {
   const n = normalizeText(userText);
   const isFollowUp =
     /^(ele|ela|esse|essa|isso|aquilo|nele|nela|disso|o plano|la|lá|tb|tambem|também)\b/.test(n) ||
-    /\b(tem|inclui|vem|possui|da|dá|da para|dá para)\b/.test(n);
+    (/\b(tem|inclui|vem|possui|da|dá|da para|dá para)\b/.test(n) && context.lastMentionedPlan);
 
-  if (!isFollowUp && context.lastTopic === undefined) return null;
+  if (!isFollowUp) return null;
 
-  const plan =
-    context.lastMentionedPlan ?? findPlanInHistory(history);
-  if (plan && /\b(tem|inclui|vem|possui|automa|chatbot|crm|dominio|domínio|ia)\b/.test(n)) {
-    const item = knowledge.find((k) => k.id === `plan-${plan}`);
-    if (item) {
-      if (/automa/.test(n)) {
-        return item.content.includes("automa") || item.content.includes("Automa")
-          ? `Sim — o plano **${plan}** inclui automações. ${item.content.split(".").slice(1).join(".").trim()}`
-          : `No plano **${plan}**, automações avançadas estão nos planos Growth e Scale. Quer que compare?`;
-      }
-      if (/chatbot/.test(n)) {
-        return /chatbot/i.test(item.content)
-          ? `Sim! ${item.content}`
-          : `Chatbots multicanal estão a partir do Starter. O **${plan}**: ${item.content}`;
-      }
-      if (/dominio|domínio/.test(n)) {
-        const growth = knowledge.find((k) => k.id === "plan-growth");
-        if (plan === "free" || plan === "starter") {
-          return `Domínio personalizado está nos planos **Growth** (€79) e **Scale** (€199). O **${plan}** usa o link \`/p/seu-slug\`. Quer fazer upgrade?`;
-        }
-        return growth?.content ?? `Configure em **Domínios** → DNS → verificar.`;
-      }
-      return item.content;
-    }
-  }
-
-  if (context.lastTopic?.startsWith("plan:")) {
-    const planId = context.lastTopic.replace("plan:", "");
-    const item = knowledge.find((k) => k.id === `plan-${planId}`);
-    if (item) return item.content;
-  }
-
-  const augmented = buildAugmentedQuery(userText, history, context);
-  const hits = retrieveKnowledgeEnhanced(userText, knowledge, { augmentedQuery: augmented, minScore: 1 });
-  if (hits.length > 0) return synthesizeKnowledgeAnswer(hits);
+  const plan = context.lastMentionedPlan ?? findPlanInHistory(history);
+  if (!plan) return null;
 
   return null;
 }

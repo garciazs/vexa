@@ -1,4 +1,3 @@
-import { PLANS } from "@/lib/constants";
 import {
   analyzeSentiment,
   avoidRepetition,
@@ -13,11 +12,14 @@ import {
 import { buildSearchIndex } from "@/lib/chatbot/knowledge-base";
 import { applyPersonality, getPersonality } from "@/lib/chatbot/personalities";
 import {
-  buildAugmentedQuery,
-  findPlanInHistory,
+  answerPlanQuestion,
+  extractPlanId,
+  INTENT_FAQ_FILTER,
+  safeUnknownAnswer,
+} from "@/lib/chatbot/grounded-answers";
+import {
   indexFlowAsKnowledge,
   INTENT_HANDLERS,
-  resolveFollowUpAnswer,
   retrieveKnowledgeEnhanced,
   suggestTopicsFromQuery,
   synthesizeKnowledgeAnswer,
@@ -63,9 +65,7 @@ function matchFlowOption(node: BotFlowNode, userText: string): { label: string; 
   for (let i = 0; i < node.options.length; i++) {
     const opt = node.options[i];
     const label = normalizeInput(opt.label.replace(/[^\w\s]/g, ""));
-    if (n.includes(label) || label.split(" ").some((w) => w.length > 3 && n.includes(w))) {
-      return opt;
-    }
+    if (n === label || n.includes(label)) return opt;
     if (/^[1-3]$/.test(n) && String(i + 1) === n) return opt;
   }
   return null;
@@ -74,19 +74,6 @@ function matchFlowOption(node: BotFlowNode, userText: string): { label: string; 
 function findNode(flows: BotFlowNode[], id?: string): BotFlowNode | undefined {
   if (!id) return undefined;
   return flows.find((f) => f.id === id);
-}
-
-function getPlanAnswer(planId: string, questionIntent: DetectedIntent): string {
-  const plan = PLANS.find((p) => p.id === planId);
-  if (!plan) return "Temos **Free**, **Starter** (€29), **Growth** (€79) e **Scale** (€199). Qual quer conhecer?";
-
-  if (questionIntent === "pricing" || questionIntent === "follow_up") {
-    return `O plano **${plan.name}** custa **€${plan.price}/mês**. ${plan.description}. Inclui: ${plan.features.join(", ")}.`;
-  }
-  if (questionIntent === "features" || questionIntent === "compare") {
-    return `O **${plan.name}** inclui: ${plan.features.join(", ")}.`;
-  }
-  return `**${plan.name}** — €${plan.price}/mês: ${plan.features.slice(0, 5).join(", ")}.`;
 }
 
 function buildDomainSupportReply(text: string): string {
@@ -104,21 +91,37 @@ function buildDomainSupportReply(text: string): string {
   return "Domínio personalizado (Growth/Scale): ligue em Domínios → configure DNS → verifique. Quer o passo-a-passo detalhado?";
 }
 
-function searchAndAnswer(
+/** RAG estrito — só query do utilizador, score alto, filtro por intenção */
+function searchGroundedKnowledge(
   userText: string,
-  history: ConversationTurn[],
-  context: ConversationContext,
-  knowledgeIndex: ReturnType<typeof buildSearchIndex>,
-  minScore = 1.2
+  intent: DetectedIntent,
+  knowledgeIndex: ReturnType<typeof buildSearchIndex>
 ): string | null {
-  const augmented = buildAugmentedQuery(userText, history, context);
-  const hits = retrieveKnowledgeEnhanced(userText, knowledgeIndex, {
-    augmentedQuery: augmented,
-    minScore,
-    limit: 3,
+  const allowedIds = INTENT_FAQ_FILTER[intent];
+  const pool = allowedIds
+    ? knowledgeIndex.filter((item) => allowedIds.includes(item.id))
+    : knowledgeIndex;
+
+  const hits = retrieveKnowledgeEnhanced(userText, pool, {
+    minScore: 2.5,
+    limit: 2,
   });
   if (hits.length === 0) return null;
-  return synthesizeKnowledgeAnswer(hits);
+  if (hits[0].score < 3) return null;
+  return synthesizeKnowledgeAnswer(hits, { maxLength: 600 });
+}
+
+function resolvePlanForQuestion(
+  userText: string,
+  context: ConversationContext,
+  entities: string[],
+  history: ConversationTurn[]
+): string | undefined {
+  return (
+    extractPlanId(userText) ??
+    resolveReferencedPlan(userText, context, entities, history) ??
+    context.lastMentionedPlan
+  );
 }
 
 function buildSmartReply(
@@ -151,15 +154,6 @@ function buildSmartReply(
     return { text: applyPersonality(yesNo, personality), intent: "follow_up", sentiment };
   }
 
-  const followUp = resolveFollowUpAnswer(userText, state.context, history, knowledgeIndex);
-  if (followUp) {
-    return {
-      text: applyPersonality(followUp, personality, { includeOpener: true }),
-      intent: "follow_up",
-      sentiment,
-    };
-  }
-
   const currentNode = findNode(flows, state.currentNodeId);
   if (currentNode?.type === "options") {
     const matched = matchFlowOption(currentNode, userText);
@@ -177,22 +171,59 @@ function buildSmartReply(
     }
   }
 
-  const referencedPlan =
-    resolveReferencedPlan(userText, state.context, entities, history) ?? findPlanInHistory(history);
+  const planId = resolvePlanForQuestion(userText, state.context, entities, history);
+  const planIntent: DetectedIntent =
+    intent === "pricing" || intent === "compare" || intent === "features" || intent === "follow_up"
+      ? intent
+      : planId && /preco|quanto|custo|tem|inclui|white label|api|automa|chatbot|dominio|domínio/i.test(userText)
+        ? "features"
+        : intent;
 
-  if ((intent === "pricing" || intent === "follow_up" || intent === "features") && referencedPlan) {
-    const featureQ = /tem|inclui|vem|possui|automa|chatbot|crm|dominio|domínio|ia|site/i.test(userText.toLowerCase());
-    const answer = getPlanAnswer(referencedPlan, featureQ ? "features" : intent);
+  if (
+    planId &&
+    (planIntent === "pricing" ||
+      planIntent === "features" ||
+      planIntent === "follow_up" ||
+      planIntent === "compare" ||
+      extractPlanId(userText))
+  ) {
+    const grounded = answerPlanQuestion(planId, userText, planIntent);
+    if (grounded) {
+      return {
+        text: applyPersonality(grounded, personality, { includeOpener: planIntent === "follow_up" }),
+        intent: planIntent === "follow_up" ? "follow_up" : planIntent,
+        sentiment,
+        suggestFollowUp: planIntent === "pricing" ? "Quer comparar com outro plano?" : undefined,
+      };
+    }
+  }
+
+  if (intent === "pricing" || intent === "compare") {
     return {
-      text: applyPersonality(answer, personality, { includeOpener: intent === "follow_up" }),
-      intent: featureQ ? "features" : "pricing",
+      text: applyPersonality(
+        "**Free** (grátis) · **Starter** €29 · **Growth** €79 · **Scale** €199/mês. Qual plano quer conhecer?",
+        personality,
+        { includeOpener: true }
+      ),
+      intent,
       sentiment,
-      suggestFollowUp: "Quer comparar com outro plano ou assinar?",
+      suggestFollowUp: "Ex.: quanto custa o plano Growth?",
+    };
+  }
+
+  if (intent === "domain" || (intent === "support" && /site|dom|entra|abre|offline/i.test(userText))) {
+    const domainKb = searchGroundedKnowledge(userText, "domain", knowledgeIndex);
+    return {
+      text: applyPersonality(domainKb ?? buildDomainSupportReply(userText), personality, {
+        includeOpener: sentiment === "negative" || sentiment === "urgent",
+      }),
+      intent: intent === "domain" ? "domain" : "support",
+      sentiment,
     };
   }
 
   const handler = INTENT_HANDLERS[intent];
-  if (handler) {
+  if (handler && intent !== "features") {
     const handled = handler(userText, state.context);
     if (handled) {
       return {
@@ -201,33 +232,6 @@ function buildSmartReply(
         sentiment,
       };
     }
-  }
-
-  if (intent === "pricing" || intent === "compare") {
-    const compareHit = searchAndAnswer(userText, history, state.context, knowledgeIndex, 1);
-    if (compareHit) {
-      return { text: applyPersonality(compareHit, personality, { includeOpener: true }), intent, sentiment };
-    }
-    return {
-      text: applyPersonality(
-        "**Free** (1 site IA grátis) · **Starter** €29 · **Growth** €79 · **Scale** €199/mês. Qual encaixa no seu negócio?",
-        personality,
-        { includeOpener: true }
-      ),
-      intent,
-      sentiment,
-      suggestFollowUp: "Posso comparar Growth vs Starter?",
-    };
-  }
-
-  if (intent === "domain" || (intent === "support" && /site|dom|entra|abre|offline/i.test(userText))) {
-    return {
-      text: applyPersonality(buildDomainSupportReply(userText), personality, {
-        includeOpener: sentiment === "negative" || sentiment === "urgent",
-      }),
-      intent: intent === "domain" ? "domain" : "support",
-      sentiment,
-    };
   }
 
   if (intent === "greeting") {
@@ -264,10 +268,12 @@ function buildSmartReply(
     };
   }
 
-  if (intent === "cancel") {
+  if (intent === "cancel" || intent === "billing") {
+    const billingKb = searchGroundedKnowledge(userText, intent, knowledgeIndex);
     return {
       text: applyPersonality(
-        "Para cancelar: vá em **Planos** → **Gerir subscrição** (portal Stripe) → cancelar plano. O acesso mantém-se até fim do período pago. Precisa de ajuda com isso?",
+        billingKb ??
+          "Para cancelar: vá em **Planos** → **Gerir subscrição** (portal Stripe) → cancelar plano. O acesso mantém-se até fim do período pago.",
         personality,
         { includeOpener: true }
       ),
@@ -276,33 +282,13 @@ function buildSmartReply(
     };
   }
 
-  const ragAnswer = searchAndAnswer(userText, history, state.context, knowledgeIndex, 1);
+  const ragAnswer = searchGroundedKnowledge(userText, intent, knowledgeIndex);
   if (ragAnswer) {
     return {
       text: applyPersonality(ragAnswer, personality, { includeOpener: intent === "unknown" }),
       intent: intent === "unknown" ? "features" : intent,
       sentiment,
     };
-  }
-
-  for (const node of flows) {
-    if (!node.text) continue;
-    const overlap = searchAndAnswer(node.text + " " + userText, history, state.context, [
-      { id: node.id, title: "fluxo", content: node.text, keywords: [] },
-    ]);
-    if (overlap && node.text.length > 20) {
-      const userOverlap = userText.toLowerCase().split(/\s+/).filter((w) => w.length > 4);
-      const nodeWords = node.text.toLowerCase().split(/\s+/);
-      const matches = userOverlap.filter((w) => nodeWords.some((nw) => nw.includes(w) || w.includes(nw)));
-      if (matches.length >= 1) {
-        return {
-          text: applyPersonality(node.text, personality),
-          intent,
-          sentiment,
-          nextNodeId: node.nextId ?? node.id,
-        };
-      }
-    }
   }
 
   const suggestions = suggestTopicsFromQuery(userText);
@@ -312,7 +298,7 @@ function buildSmartReply(
   return {
     text: applyPersonality(
       avoidRepetition(
-        `${fallback}\n\nPosso ajudar com: **${suggestions.join("**, **")}**. Reformule a pergunta ou escolha abaixo.`,
+        `${fallback}\n\n${safeUnknownAnswer(userText)}\n\nTambém posso ajudar com: **${suggestions.join("**, **")}**.`,
         history
       ),
       personality
@@ -340,8 +326,7 @@ export function resolveChatbotReply(
 
   const raw = buildSmartReply(bot, trimmed, history, state);
   const { intent, entities } = detectIntent(trimmed, state.context);
-  const referencedPlan =
-    resolveReferencedPlan(trimmed, state.context, entities, history) ?? findPlanInHistory(history);
+  const referencedPlan = resolvePlanForQuestion(trimmed, state.context, entities, history);
 
   const newContext: ConversationContext = {
     ...state.context,

@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
 import { generatePageFromPrompt } from "@/lib/ai/page-generator";
-import { canUseAIGeneration, normalizePlanId } from "@/lib/templates/catalog";
+import { checkPageQuota } from "@/lib/billing/page-quota-store";
+import { checkRateLimit, getClientIp, hashIp } from "@/lib/security/rate-limit";
 import type { PlanId } from "@/lib/store/types";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const prompt = body.prompt as string | undefined;
-    const planId = normalizePlanId(body.planId as PlanId | undefined);
-    const pageCount = typeof body.pageCount === "number" ? body.pageCount : 0;
-    const publishedTotal =
-      typeof body.publishedTotal === "number" ? body.publishedTotal : 0;
+    const workspaceId = body.workspaceId as string | undefined;
     const userImages = Array.isArray(body.userImages)
       ? (body.userImages as string[]).filter(
           (u) => typeof u === "string" && u.startsWith("data:image")
@@ -21,19 +19,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Descrição obrigatória" }, { status: 400 });
     }
 
-    if (!canUseAIGeneration(planId, pageCount, publishedTotal)) {
+    if (!workspaceId) {
+      return NextResponse.json({ error: "workspaceId obrigatório" }, { status: 400 });
+    }
+
+    const ip = getClientIp(request);
+    const ipHash = hashIp(ip);
+    const rate = checkRateLimit(`gen:${workspaceId}:${ipHash}`, 8, 60_000);
+    if (!rate.allowed) {
       return NextResponse.json(
-        {
-          error:
-            planId === "free"
-              ? "Plano Free: já publicou o seu site grátis. Assine para criar mais."
-              : "Limite de sites do seu plano atingido.",
-          code: "PAGE_LIMIT",
-        },
+        { error: "Demasiados pedidos. Aguarde alguns segundos.", code: "RATE_LIMIT" },
+        { status: 429 }
+      );
+    }
+
+    const check = await checkPageQuota({
+      workspaceId,
+      action: "generate",
+      ipHash,
+    });
+
+    if (!check.allowed) {
+      return NextResponse.json(
+        { error: check.message, code: check.code },
         { status: 403 }
       );
     }
 
+    const planId = check.planId as PlanId;
     const delay =
       planId === "free" || planId === "scale" ? 2000 : planId === "growth" ? 1600 : 1300;
     await new Promise((r) => setTimeout(r, delay));

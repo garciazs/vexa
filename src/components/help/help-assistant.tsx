@@ -17,7 +17,12 @@ import {
 import { createDefaultKnowledge } from "@/lib/chatbot/knowledge-base";
 import { applyPersonality, getPersonality } from "@/lib/chatbot/personalities";
 import {
-  buildAugmentedQuery,
+  answerPlanQuestion,
+  extractPlanId,
+  INTENT_FAQ_FILTER,
+  safeUnknownAnswer,
+} from "@/lib/chatbot/grounded-answers";
+import {
   resolveFollowUpAnswer,
   retrieveKnowledgeEnhanced,
   synthesizeKnowledgeAnswer,
@@ -40,26 +45,27 @@ function getReply(
   const yesNo = tryAnswerYesNo(userText, context);
   if (yesNo) return { text: applyPersonality(yesNo, personality), intent: "follow_up" };
 
-  const followUp = resolveFollowUpAnswer(userText, context, history, HELP_KNOWLEDGE);
+  const followUp = resolveFollowUpAnswer(userText, context, history);
   if (followUp) {
     return { text: applyPersonality(followUp, personality, { includeOpener: true }), intent: "follow_up" };
   }
 
-  const plan = resolveReferencedPlan(userText, context, entities, history);
-  if ((intent === "pricing" || intent === "follow_up") && plan) {
-    const item = HELP_KNOWLEDGE.find((k) => k.id === `plan-${plan}`);
-    if (item) {
+  const plan =
+    extractPlanId(userText) ?? resolveReferencedPlan(userText, context, entities, history);
+  if (plan && (intent === "pricing" || intent === "follow_up" || intent === "features" || intent === "compare")) {
+    const grounded = answerPlanQuestion(plan, userText, intent);
+    if (grounded) {
       return {
-        text: applyPersonality(item.content, personality, { includeOpener: true }),
-        intent: intent === "follow_up" ? "follow_up" : "pricing",
+        text: applyPersonality(grounded, personality, { includeOpener: intent === "follow_up" }),
+        intent: intent === "follow_up" ? "follow_up" : intent,
       };
     }
   }
 
-  const augmented = buildAugmentedQuery(userText, history, context);
-  const hits = retrieveKnowledgeEnhanced(userText, HELP_KNOWLEDGE, {
-    augmentedQuery: augmented,
-    minScore: 1,
+  const allowedIds = INTENT_FAQ_FILTER[intent];
+  const pool = allowedIds ? HELP_KNOWLEDGE.filter((k) => allowedIds.includes(k.id)) : HELP_KNOWLEDGE;
+  const hits = retrieveKnowledgeEnhanced(userText, pool, {
+    minScore: 2.5,
     limit: 2,
   });
   if (hits.length > 0) {
@@ -87,7 +93,7 @@ function getReply(
   }
 
   return {
-    text: "Posso ajudar com: **publicar sites**, **preços**, **chatbots**, **automações**, **CRM** ou **domínios**. O que precisa?",
+    text: applyPersonality(safeUnknownAnswer(userText), personality),
     intent: "unknown",
   };
 }

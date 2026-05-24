@@ -32,12 +32,14 @@ export function TemplatesView() {
 
   function applyTemplate(templateId: string, templateName: string) {
     if (!canCreateMore) return;
-    const id = createLandingPage({ templateId, name: templateName });
-    if (!id) {
-      alert("Limite de sites atingido. Faça upgrade para criar mais.");
-      return;
-    }
-    router.push(`/builder/${id}`);
+    void (async () => {
+      const id = await createLandingPage({ templateId, name: templateName });
+      if (!id) {
+        alert("Limite de sites atingido. Faça upgrade para criar mais.");
+        return;
+      }
+      router.push(`/builder/${id}`);
+    })();
   }
 
   return (
