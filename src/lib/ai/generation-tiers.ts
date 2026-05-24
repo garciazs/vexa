@@ -19,7 +19,7 @@ export const GENERATION_TIERS: Record<PlanId, GenerationTierConfig> = {
     maxUserImages: 3,
     maxPages: PAGE_PLAN_LIMITS.free.maxPages,
     label: "100% Premium",
-    hint: "1 site grátis com qualidade 100%. Depois de criar, assine para ter mais sites — não é possível criar um 2.º no Free.",
+    hint: "1 site grátis com qualidade 100%. Use a IA, edite e publique — só depois o limite entra em vigor.",
   },
   starter: {
     fullQuality: false,

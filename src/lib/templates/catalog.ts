@@ -412,24 +412,33 @@ export function normalizePlanId(plan: PlanId | string | undefined | null): PlanI
 export function canCreatePage(
   plan: PlanId | string | undefined | null,
   currentCount: number,
-  lifetimeCreated?: number
+  publishedTotal?: number
 ): boolean {
   const id = normalizePlanId(plan);
   const max = PLAN_LIMITS[id].maxPages;
   if (max !== Infinity && currentCount >= max) return false;
-  if (id === "free") {
-    const lifetime = lifetimeCreated ?? currentCount;
-    if (lifetime >= PLAN_LIMITS.free.maxPages) return false;
-  }
+  if (id === "free" && (publishedTotal ?? 0) >= PLAN_LIMITS.free.maxPages) return false;
   return max === Infinity || currentCount < max;
+}
+
+/** Permite gerar com IA enquanto ainda não publicou o site grátis (Free) ou há slot livre */
+export function canUseAIGeneration(
+  plan: PlanId | string | undefined | null,
+  currentCount: number,
+  publishedTotal?: number
+): boolean {
+  if (canCreatePage(plan, currentCount, publishedTotal)) return true;
+  const id = normalizePlanId(plan);
+  if (id === "free" && (publishedTotal ?? 0) < PLAN_LIMITS.free.maxPages) return true;
+  return false;
 }
 
 export function getRemainingPages(
   plan: PlanId | string | undefined | null,
   currentCount: number,
-  lifetimeCreated?: number
+  publishedTotal?: number
 ): number {
-  if (!canCreatePage(plan, currentCount, lifetimeCreated)) return 0;
+  if (!canCreatePage(plan, currentCount, publishedTotal)) return 0;
   const id = normalizePlanId(plan);
   const max = PLAN_LIMITS[id].maxPages;
   if (max === Infinity) return Infinity;
@@ -438,17 +447,29 @@ export function getRemainingPages(
 
 export function getPageLimitMessage(
   plan: PlanId | string | undefined | null,
-  atLimit: boolean
+  atLimit: boolean,
+  opts?: { hasDraft?: boolean; publishedTotal?: number }
 ): string {
   const id = normalizePlanId(plan);
+  const published = opts?.publishedTotal ?? 0;
+
   if (!atLimit) {
     const max = PLAN_LIMITS[id].maxPages;
-    if (max === 1) return "Plano Free: pode criar 1 site grátis com qualidade 100%.";
+    if (max === 1) {
+      return "Plano Free: use a IA para criar 1 site completo, edite e publique — tudo grátis.";
+    }
     if (max === Infinity) return "Sites ilimitados neste plano.";
     return `Pode criar até ${max} sites neste plano.`;
   }
+
   if (id === "free") {
-    return "Limite do Free atingido — 1 site por conta. Assine para criar mais landing pages.";
+    if (published >= PLAN_LIMITS.free.maxPages) {
+      return "Já publicou o seu site grátis. Assine um plano para criar mais landing pages.";
+    }
+    if (opts?.hasDraft) {
+      return "Tem um rascunho em curso — edite, regenere com IA e publique antes de criar outro.";
+    }
+    return "Limite de rascunhos atingido neste plano. Edite o site existente ou publique-o.";
   }
   const max = PLAN_LIMITS[id].maxPages;
   return `Limite atingido (${max} sites). Faça upgrade para criar mais.`;

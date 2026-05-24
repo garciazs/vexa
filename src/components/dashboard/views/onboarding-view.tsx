@@ -1,37 +1,40 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, Sparkles } from "lucide-react";
 import { Header } from "@/components/dashboard/header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageLimitBanner } from "@/components/dashboard/page-limit-banner";
+import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/lib/store/workspace-provider";
 import { ONBOARDING_STEPS, type PlanId } from "@/lib/store/types";
 import { normalizePlanId } from "@/lib/templates/catalog";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 
 const SUGGESTIONS = [
+  "Barbearia premium preto e dourado em Lisboa",
   "Curso online de marketing digital",
-  "Mentoria fitness 1:1",
-  "Webinar gratuito sobre vendas",
-  "Programa de coaching executivo",
-  "Lançamento de produto SaaS",
+  "Mentoria fitness 1:1 com agendamento",
+  "Clínica de estética moderna e elegante",
+  "SaaS B2B para equipas de vendas",
 ];
 
 export function OnboardingView() {
   const router = useRouter();
-  const { data, createLandingPage, canCreateLandingPage } = useWorkspace();
+  const { data, canUseAIGeneration } = useWorkspace();
   const completed = data?.onboardingSteps ?? [];
   const planId = normalizePlanId(data?.workspace.plan) as PlanId;
   const pageCount = data?.landingPages.length ?? 0;
-  const canCreateMore = canCreateLandingPage;
+  const publishedTotal = Math.max(
+    data?.workspace.landingPagesPublishedTotal ?? 0,
+    data?.landingPages.filter((p) => p.status === "published").length ?? 0
+  );
   const firstPageId = data?.landingPages[0]?.id;
+  const atPublishedLimit = !canUseAIGeneration;
 
-  function handleSuggestion(suggestion: string) {
-    if (!canCreateMore) return;
-    const id = createLandingPage({ name: suggestion });
-    if (id) router.push(`/builder/${id}`);
+  function startWithSuggestion(suggestion: string) {
+    if (atPublishedLimit) return;
+    router.push(`/builder/ai?prompt=${encodeURIComponent(suggestion)}`);
   }
 
   return (
@@ -69,31 +72,41 @@ export function OnboardingView() {
           <PageLimitBanner
             planId={planId}
             pageCount={pageCount}
-            atLimit={!canCreateMore}
+            publishedTotal={publishedTotal}
+            atLimit={atPublishedLimit}
             existingPageId={firstPageId}
           />
 
           <Card className="glass">
             <CardHeader>
-              <CardTitle>O que quer vender?</CardTitle>
+              <CardTitle>Crie o seu site com IA</CardTitle>
               <CardDescription>
-                {canCreateMore
-                  ? "Escolha uma sugestão para criar a sua primeira página"
-                  : "Já tem o seu site — edite-o ou faça upgrade para criar mais"}
+                {atPublishedLimit
+                  ? "Já publicou o seu site grátis — edite-o ou faça upgrade para criar outro"
+                  : "Escolha uma sugestão ou descreva o seu negócio — a IA cria o site completo para publicar"}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {canCreateMore ? (
-                SUGGESTIONS.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => handleSuggestion(suggestion)}
-                    className="w-full rounded-lg border border-border p-3 text-left text-sm transition hover:border-purple/30 hover:bg-surface-hover"
-                  >
-                    {suggestion}
-                  </button>
-                ))
+            <CardContent className="space-y-3">
+              {!atPublishedLimit ? (
+                <>
+                  <Button variant="green" className="w-full" asChild>
+                    <Link href="/builder/ai">
+                      <Sparkles className="h-4 w-4" />
+                      Abrir gerador de sites com IA
+                    </Link>
+                  </Button>
+                  <p className="text-xs text-muted-foreground">Ou comece com uma sugestão:</p>
+                  {SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => startWithSuggestion(suggestion)}
+                      className="w-full rounded-lg border border-border p-3 text-left text-sm transition hover:border-purple/30 hover:bg-surface-hover"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {firstPageId && (

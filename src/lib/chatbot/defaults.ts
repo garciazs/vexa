@@ -4,29 +4,36 @@ export const DEFAULT_WELCOME =
   "Olá! 👋 Sou o assistente virtual. Como posso ajudar hoje?";
 
 export const DEFAULT_FALLBACK =
-  "Não entendi bem. Escolha uma das opções abaixo ou digite *humano* para falar com alguém da equipa.";
+  "Deixa-me ver… Posso ajudar com preços, funcionalidades ou agendar uma demo. Escolha uma opção ou digite *humano* para falar com a equipa.";
 
 export function createDefaultFlow(): BotFlowNode[] {
-  const optPrices = crypto.randomUUID();
-  const optHuman = crypto.randomUUID();
+  const welcomeId = crypto.randomUUID();
+  const optionsId = crypto.randomUUID();
+  const pricesId = crypto.randomUUID();
   const optDemo = crypto.randomUUID();
+  const optHuman = crypto.randomUUID();
 
   return [
     {
-      id: crypto.randomUUID(),
+      id: welcomeId,
       type: "message",
       text: DEFAULT_WELCOME,
-      nextId: optPrices,
+      nextId: optionsId,
     },
     {
-      id: optPrices,
+      id: optionsId,
       type: "options",
       text: "Escolha uma opção:",
       options: [
-        { label: "💰 Ver preços", nextId: crypto.randomUUID() },
+        { label: "💰 Ver preços", nextId: pricesId },
         { label: "📅 Agendar demo", nextId: optDemo },
         { label: "👤 Falar com humano", nextId: optHuman },
       ],
+    },
+    {
+      id: pricesId,
+      type: "message",
+      text: "Temos Free (1 site grátis), Starter €29/mês, Growth €79/mês e Scale €199/mês. Qual plano quer conhecer melhor?",
     },
     {
       id: optDemo,
@@ -47,6 +54,8 @@ export function normalizeChatbot(bot: ChatbotRecord): ChatbotRecord {
     welcomeMessage: bot.welcomeMessage ?? DEFAULT_WELCOME,
     fallbackMessage: bot.fallbackMessage ?? DEFAULT_FALLBACK,
     flows: bot.flows?.length ? bot.flows : createDefaultFlow(),
+    personality: bot.personality ?? "support",
+    smartMode: bot.smartMode ?? true,
     connected: bot.connected ?? false,
   };
 }

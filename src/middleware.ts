@@ -9,6 +9,7 @@ const PROTECTED_PATHS = [
   "/api/stripe/checkout",
   "/api/stripe/portal",
   "/api/stripe/verify-session",
+  "/api/chatbots/reply",
 ];
 
 export function middleware(request: NextRequest) {
@@ -33,5 +34,6 @@ export const config = {
     "/api/stripe/checkout",
     "/api/stripe/portal",
     "/api/stripe/verify-session",
+    "/api/chatbots/reply",
   ],
 };

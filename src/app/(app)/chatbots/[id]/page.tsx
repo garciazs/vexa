@@ -5,23 +5,23 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
-  Bot,
-  Camera,
-  MessageCircle,
+  Brain,
   Plus,
   Save,
-  Send,
+  Sparkles,
   Trash2,
   Wifi,
 } from "lucide-react";
 import { Header } from "@/components/dashboard/header";
+import { ChatSimulator } from "@/components/chatbot/chat-simulator";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BOT_PERSONALITIES } from "@/lib/chatbot/personalities";
 import { useWorkspace } from "@/lib/store/workspace-provider";
-import type { BotFlowNode, BotChannel } from "@/lib/store/types";
-import { DEFAULT_FALLBACK, DEFAULT_WELCOME } from "@/lib/chatbot/defaults";
+import type { BotFlowNode, BotChannel, BotKnowledgeItem, BotPersonalityId, ChatbotRecord } from "@/lib/store/types";
+import { DEFAULT_FALLBACK, DEFAULT_WELCOME, normalizeChatbot } from "@/lib/chatbot/defaults";
 
 const channelLabels: Record<BotChannel, string> = {
   whatsapp: "WhatsApp",
@@ -32,26 +32,27 @@ const channelLabels: Record<BotChannel, string> = {
 export default function ChatbotEditorPage() {
   const params = useParams();
   const id = params.id as string;
-  const { data, updateChatbot, connectChatbot } = useWorkspace();
+  const { data, updateChatbot, connectChatbot, addLead } = useWorkspace();
   const bot = data?.chatbots.find((b) => b.id === id);
 
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [fallbackMessage, setFallbackMessage] = useState("");
   const [flows, setFlows] = useState<BotFlowNode[]>([]);
+  const [personality, setPersonality] = useState<BotPersonalityId>("support");
+  const [smartMode, setSmartMode] = useState(true);
+  const [knowledgeBase, setKnowledgeBase] = useState<BotKnowledgeItem[]>([]);
   const [connectAccount, setConnectAccount] = useState("");
   const [saved, setSaved] = useState(false);
-  const [previewInput, setPreviewInput] = useState("");
-  const [previewMessages, setPreviewMessages] = useState<{ role: "bot" | "user"; text: string }[]>(
-    []
-  );
 
   useEffect(() => {
     if (!bot) return;
     setWelcomeMessage(bot.welcomeMessage ?? DEFAULT_WELCOME);
     setFallbackMessage(bot.fallbackMessage ?? DEFAULT_FALLBACK);
     setFlows(bot.flows ?? []);
+    setPersonality(bot.personality ?? "support");
+    setSmartMode(bot.smartMode !== false);
+    setKnowledgeBase(bot.knowledgeBase ?? []);
     setConnectAccount(bot.connectedAccount ?? "");
-    setPreviewMessages([{ role: "bot", text: bot.welcomeMessage ?? DEFAULT_WELCOME }]);
   }, [bot?.id]);
 
   if (!bot) {
@@ -67,32 +68,42 @@ export default function ChatbotEditorPage() {
     );
   }
 
+  const previewBot: ChatbotRecord = normalizeChatbot({
+    ...bot,
+    welcomeMessage,
+    fallbackMessage,
+    flows,
+    personality,
+    smartMode,
+    knowledgeBase,
+  });
+
   function updateNode(nodeId: string, patch: Partial<BotFlowNode>) {
     setFlows((prev) => prev.map((n) => (n.id === nodeId ? { ...n, ...patch } : n)));
     setSaved(false);
   }
 
   function addMessageNode() {
-    const node: BotFlowNode = {
-      id: crypto.randomUUID(),
-      type: "message",
-      text: "Nova mensagem automática do bot",
-    };
-    setFlows((prev) => [...prev, node]);
+    setFlows((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), type: "message", text: "Nova mensagem automática do bot" },
+    ]);
     setSaved(false);
   }
 
   function addOptionsNode() {
-    const node: BotFlowNode = {
-      id: crypto.randomUUID(),
-      type: "options",
-      text: "Escolha uma opção:",
-      options: [
-        { label: "Opção 1", nextId: "" },
-        { label: "Opção 2", nextId: "" },
-      ],
-    };
-    setFlows((prev) => [...prev, node]);
+    setFlows((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        type: "options",
+        text: "Escolha uma opção:",
+        options: [
+          { label: "Opção 1", nextId: "" },
+          { label: "Opção 2", nextId: "" },
+        ],
+      },
+    ]);
     setSaved(false);
   }
 
@@ -101,11 +112,28 @@ export default function ChatbotEditorPage() {
     setSaved(false);
   }
 
+  function addKnowledgeItem() {
+    setKnowledgeBase((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title: "Nova FAQ",
+        content: "Resposta da base de conhecimento…",
+        keywords: [],
+        source: "faq",
+      },
+    ]);
+    setSaved(false);
+  }
+
   function handleSave() {
     updateChatbot(id, {
       welcomeMessage,
       fallbackMessage,
       flows,
+      personality,
+      smartMode,
+      knowledgeBase,
       status: "active",
     });
     setSaved(true);
@@ -123,30 +151,30 @@ export default function ChatbotEditorPage() {
     connectChatbot(id, account);
   }
 
-  function sendPreview() {
-    if (!previewInput.trim()) return;
-    const userText = previewInput.trim();
-    setPreviewMessages((prev) => [
-      ...prev,
-      { role: "user", text: userText },
+  function handleConversationStart() {
+    if (!bot) return;
+    addLead(
       {
-        role: "bot",
-        text:
-          flows.find((f) => f.type === "message" && f.text && f.id !== flows[0]?.id)?.text ??
-          fallbackMessage,
+        name: "Visitante chat",
+        email: "chat@visitante.local",
+        score: 10,
+        value: 0,
+        status: "new",
+        source: `Chatbot: ${bot.name}`,
+        tags: ["chatbot", bot.channel],
       },
-    ]);
-    setPreviewInput("");
+      "chat_started"
+    );
+    updateChatbot(id, { conversations: bot.conversations + 1 });
   }
 
-  const ChannelIcon =
-    bot.channel === "whatsapp" ? MessageCircle : bot.channel === "instagram" ? Camera : Bot;
+  const messageNodes = flows.filter((f) => f.type === "message" || f.type === "options");
 
   return (
     <>
       <Header
         title={bot.name}
-        description={`Editor de fluxo · ${channelLabels[bot.channel]}`}
+        description={`IA conversacional · ${channelLabels[bot.channel]}`}
       />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
@@ -157,10 +185,58 @@ export default function ChatbotEditorPage() {
               </Link>
             </Button>
             {saved && <span className="text-xs text-green">Guardado</span>}
+            <Badge variant="green" className="gap-1">
+              <Sparkles className="h-3 w-3" />
+              IA inteligente
+            </Badge>
             <Button size="sm" onClick={handleSave} className="ml-auto">
-              <Save className="h-4 w-4" /> Guardar fluxo
+              <Save className="h-4 w-4" /> Guardar
             </Button>
           </div>
+
+          <Card className="glass mb-6 border-purple/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Brain className="h-4 w-4 text-purple-bright" />
+                Inteligência do bot
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Personalidade
+                </label>
+                <select
+                  className="flex h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+                  value={personality}
+                  onChange={(e) => {
+                    setPersonality(e.target.value as BotPersonalityId);
+                    setSaved(false);
+                  }}
+                >
+                  {Object.values(BOT_PERSONALITIES).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label} — {p.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={smartMode}
+                    onChange={(e) => {
+                      setSmartMode(e.target.checked);
+                      setSaved(false);
+                    }}
+                    className="rounded border-border"
+                  />
+                  Modo IA inteligente (memória, contexto, RAG)
+                </label>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card className="glass mb-6">
             <CardHeader>
@@ -224,6 +300,74 @@ export default function ChatbotEditorPage() {
             </Card>
           </div>
 
+          <Card className="glass mb-6">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Base de conhecimento (FAQ / RAG)</CardTitle>
+              <Button variant="outline" size="sm" onClick={addKnowledgeItem}>
+                <Plus className="h-3 w-3" /> FAQ
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                A IA usa estes conteúdos para responder com precisão — além dos planos e fluxo VEXA.
+              </p>
+              {knowledgeBase.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Sem FAQs custom — a IA usa conhecimento padrão VEXA (planos, domínios, automações).
+                </p>
+              ) : (
+                knowledgeBase.map((item, idx) => (
+                  <div key={item.id} className="rounded-lg border border-border p-3 space-y-2">
+                    <Input
+                      value={item.title}
+                      onChange={(e) => {
+                        const next = [...knowledgeBase];
+                        next[idx] = { ...item, title: e.target.value };
+                        setKnowledgeBase(next);
+                        setSaved(false);
+                      }}
+                      placeholder="Título / pergunta"
+                    />
+                    <textarea
+                      className="min-h-[60px] w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+                      value={item.content}
+                      onChange={(e) => {
+                        const next = [...knowledgeBase];
+                        next[idx] = { ...item, content: e.target.value };
+                        setKnowledgeBase(next);
+                        setSaved(false);
+                      }}
+                      placeholder="Resposta"
+                    />
+                    <Input
+                      value={(item.keywords ?? []).join(", ")}
+                      onChange={(e) => {
+                        const next = [...knowledgeBase];
+                        next[idx] = {
+                          ...item,
+                          keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean),
+                        };
+                        setKnowledgeBase(next);
+                        setSaved(false);
+                      }}
+                      placeholder="Palavras-chave (separadas por vírgula)"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setKnowledgeBase((prev) => prev.filter((k) => k.id !== item.id));
+                        setSaved(false);
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" /> Remover
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold">Fluxo de conversa</h3>
             <div className="flex gap-2">
@@ -264,16 +408,36 @@ export default function ChatbotEditorPage() {
                         placeholder="Texto antes dos botões"
                       />
                       {(node.options ?? []).map((opt, oi) => (
-                        <Input
-                          key={oi}
-                          value={opt.label}
-                          onChange={(e) => {
-                            const options = [...(node.options ?? [])];
-                            options[oi] = { ...options[oi], label: e.target.value };
-                            updateNode(node.id, { options });
-                          }}
-                          placeholder={`Botão ${oi + 1}`}
-                        />
+                        <div key={oi} className="flex gap-2">
+                          <Input
+                            value={opt.label}
+                            onChange={(e) => {
+                              const options = [...(node.options ?? [])];
+                              options[oi] = { ...options[oi], label: e.target.value };
+                              updateNode(node.id, { options });
+                            }}
+                            placeholder={`Botão ${oi + 1}`}
+                            className="flex-1"
+                          />
+                          <select
+                            className="h-10 rounded-lg border border-border bg-surface px-2 text-xs"
+                            value={opt.nextId}
+                            onChange={(e) => {
+                              const options = [...(node.options ?? [])];
+                              options[oi] = { ...options[oi], nextId: e.target.value };
+                              updateNode(node.id, { options });
+                            }}
+                          >
+                            <option value="">→ Próximo passo</option>
+                            {messageNodes
+                              .filter((n) => n.id !== node.id)
+                              .map((n, ni) => (
+                                <option key={n.id} value={n.id}>
+                                  {ni + 1}. {n.text?.slice(0, 30) ?? n.type}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -283,38 +447,20 @@ export default function ChatbotEditorPage() {
           </div>
         </div>
 
-        <aside className="hidden w-80 shrink-0 flex-col border-l border-border bg-surface lg:flex">
+        <aside className="hidden w-96 shrink-0 flex-col border-l border-border bg-surface lg:flex">
           <div className="border-b border-border p-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Simulador
+              Simulador IA
             </p>
-            <p className="text-sm text-muted-foreground">{channelLabels[bot.channel]}</p>
+            <p className="text-sm text-muted-foreground">
+              Teste memória, contexto e intenção
+            </p>
           </div>
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
-            {previewMessages.map((m, i) => (
-              <div
-                key={i}
-                className={`max-w-[90%] rounded-2xl px-3 py-2 text-sm ${
-                  m.role === "bot"
-                    ? "bg-purple/20 text-foreground"
-                    : "ml-auto bg-green/20 text-foreground"
-                }`}
-              >
-                {m.text}
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2 border-t border-border p-3">
-            <Input
-              placeholder="Testar resposta..."
-              value={previewInput}
-              onChange={(e) => setPreviewInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendPreview()}
-            />
-            <Button size="icon" onClick={sendPreview}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
+          <ChatSimulator
+            bot={previewBot}
+            className="flex-1"
+            onConversationStart={handleConversationStart}
+          />
         </aside>
       </div>
     </>

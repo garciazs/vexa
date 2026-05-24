@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
@@ -50,15 +50,22 @@ const GENERATION_STEPS = [
 
 export function AIBuilderView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
-  const { data, createLandingPageFromAI, canCreateLandingPage, pageLimitReason } = useWorkspace();
+  const { data, createLandingPageFromAI, canCreateLandingPage, canUseAIGeneration, pageLimitReason } =
+    useWorkspace();
   const planId = normalizePlanId(data?.workspace.plan) as PlanId;
   const tier = getGenerationTier(planId);
   const limits = PLAN_GENERATION_LIMITS[planId];
   const pageCount = data?.landingPages.length ?? 0;
-  const lifetimeCreated = data?.workspace.landingPagesCreatedTotal ?? 0;
+  const publishedTotal = Math.max(
+    data?.workspace.landingPagesPublishedTotal ?? 0,
+    data?.landingPages.filter((p) => p.status === "published").length ?? 0
+  );
   const canCreateMorePages = canCreateLandingPage;
-  const existingPageId = data?.landingPages[0]?.id;
+  const canUseAI = canUseAIGeneration;
+  const existingDraft = data?.landingPages.find((p) => p.status === "draft");
+  const existingPageId = existingDraft?.id ?? data?.landingPages[0]?.id;
 
   const [prompt, setPrompt] = useState("");
   const [uploads, setUploads] = useState<UploadedImage[]>([]);
@@ -74,6 +81,11 @@ export function AIBuilderView() {
   const [stepIndex, setStepIndex] = useState(0);
   const [result, setResult] = useState<AIGeneratedPage | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const initialPrompt = searchParams.get("prompt");
+    if (initialPrompt) setPrompt(initialPrompt);
+  }, [searchParams]);
 
   const canUploadMore = uploads.length < limits.maxUserImages;
 
@@ -114,7 +126,7 @@ export function AIBuilderView() {
             prompt: text,
             planId,
             pageCount,
-            lifetimeCreated,
+            publishedTotal,
             userImages: images,
           }),
         });
@@ -142,12 +154,12 @@ export function AIBuilderView() {
         setGenerating(false);
       }
     },
-    [planId, pageCount, lifetimeCreated]
+    [planId, pageCount, publishedTotal]
   );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canCreateMorePages) {
+    if (!canUseAI) {
       setError(pageLimitReason ?? "Limite de sites atingido. Faça upgrade em Billing.");
       return;
     }
@@ -181,15 +193,18 @@ export function AIBuilderView() {
 
   function handleOpenInBuilder() {
     if (!result) return;
-    if (!canCreateMorePages) {
+    if (!canUseAI) {
       setError(pageLimitReason ?? "Limite de sites atingido.");
       return;
     }
+    const replacePageId =
+      !canCreateMorePages && existingDraft ? existingDraft.id : undefined;
     const id = createLandingPageFromAI({
       name: result.name,
       slug: result.slug,
       blocks: result.blocks,
       theme: result.theme,
+      replacePageId,
     });
     if (!id) {
       setError(pageLimitReason ?? "Não foi possível guardar — limite do plano atingido.");
@@ -205,15 +220,16 @@ export function AIBuilderView() {
         description="Descreva o negócio — receba um site profissional pronto para vender"
       />
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
-        {!canCreateMorePages && (
-          <div className="border-b border-border p-4 lg:hidden">
+        {!canUseAI && (
+          <motion.div className="border-b border-border p-4 lg:hidden">
             <PageLimitBanner
               planId={planId}
               pageCount={pageCount}
+              publishedTotal={publishedTotal}
               atLimit
               existingPageId={existingPageId}
             />
-          </div>
+          </motion.div>
         )}
         <div className="flex w-full flex-col border-b border-border lg:w-[440px] lg:shrink-0 lg:border-b-0 lg:border-r">
           <motion.div className="border-b border-border px-4 py-3">
@@ -230,16 +246,17 @@ export function AIBuilderView() {
             <p className="mt-1.5 text-[11px] text-muted-foreground">{planHint}</p>
           </motion.div>
 
-          {!canCreateMorePages ? (
+          {!canUseAI ? (
             <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
               <PageLimitBanner
                 planId={planId}
                 pageCount={pageCount}
+                publishedTotal={publishedTotal}
                 atLimit
                 existingPageId={existingPageId}
               />
               <p className="mt-4 text-center text-xs text-muted-foreground">
-                Pode continuar a editar e publicar o seu site existente no editor.
+                Já publicou o seu site grátis. Edite-o no builder ou assine para gerar outro.
               </p>
             </div>
           ) : (
@@ -286,7 +303,7 @@ export function AIBuilderView() {
           </div>
           )}
 
-          {canCreateMorePages && (
+          {canUseAI && (
           <div className="border-t border-border p-4">
             <div className="mb-3">
               <div className="mb-2 flex items-center justify-between">
@@ -392,7 +409,7 @@ export function AIBuilderView() {
                 </>
               )}
             </div>
-            {result && canCreateMorePages && (
+            {result && canUseAI && (
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -409,9 +426,9 @@ export function AIBuilderView() {
                   <RefreshCw className="h-3.5 w-3.5" />
                   Regenerar
                 </Button>
-                <Button size="sm" variant="green" onClick={handleOpenInBuilder} disabled={!canCreateMorePages}>
+                <Button size="sm" variant="green" onClick={handleOpenInBuilder}>
                   <Pencil className="h-3.5 w-3.5" />
-                  Editar e publicar
+                  {existingDraft && !canCreateMorePages ? "Atualizar e publicar" : "Editar e publicar"}
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -419,11 +436,11 @@ export function AIBuilderView() {
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {!canCreateMorePages ? (
+            {!canUseAI ? (
               <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-4 px-8 text-center">
                 <p className="text-sm text-zinc-400">
                   {planId === "free"
-                    ? "Já criou o seu site grátis. Edite-o no builder ou assine para gerar outro."
+                    ? "Já publicou o seu site grátis. Edite-o no builder ou assine para gerar outro."
                     : "Limite de sites atingido neste plano."}
                 </p>
                 {existingPageId && (

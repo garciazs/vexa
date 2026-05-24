@@ -5,6 +5,13 @@ import type {
   LeadRecord,
   MessageLog,
 } from "@/lib/store/types";
+import {
+  analyzeLeadContext,
+  computeSmartDelay,
+  enhanceAutomationMessage,
+  type AutomationContext,
+} from "@/lib/automation/intelligence";
+import type { ConversationTurn } from "@/lib/ai/conversation-brain";
 
 export const TRIGGER_OPTIONS: { value: AutomationTrigger; label: string; description: string }[] = [
   { value: "new_lead", label: "Novo lead", description: "Quando um lead entra no CRM" },
@@ -22,7 +29,8 @@ export const CHANNEL_OPTIONS: { value: AutomationAction["channel"]; label: strin
 
 export function createDefaultAction(channel: AutomationAction["channel"] = "whatsapp"): AutomationAction {
   const templates: Record<AutomationAction["channel"], string> = {
-    whatsapp: "Olá {{nome}}! 👋 Obrigado pelo interesse. Sou da equipa e quero ajudar você a avançar. Posso enviar mais detalhes?",
+    whatsapp:
+      "Olá {{nome}}! Vi o seu interesse e quero ajudar a avançar. Posso enviar mais detalhes sobre como o VEXA acelera as suas vendas?",
     instagram: "Oi {{nome}}! Vi seu interesse. Responda aqui que te mando tudo sobre a oferta ✨",
     web_chat: "Bem-vindo(a), {{nome}}! Estou aqui para tirar dúvidas e agendar uma conversa.",
     email: "Olá {{nome}},\n\nObrigado por entrar em contacto. Em breve a nossa equipa irá responder.\n\nEquipa VEXA",
@@ -44,17 +52,38 @@ export function renderMessage(template: string, lead: Pick<LeadRecord, "name" | 
 export function runAutomationsForTrigger(
   automations: AutomationRecord[],
   trigger: AutomationTrigger,
-  lead: Pick<LeadRecord, "id" | "name" | "email">
+  lead: Pick<LeadRecord, "id" | "name" | "email" | "score" | "status" | "source" | "tags">,
+  opts?: { chatHistory?: ConversationTurn[] }
 ): MessageLog[] {
   const now = Date.now();
   const logs: MessageLog[] = [];
 
+  const autoContext: AutomationContext = {
+    trigger,
+    lead,
+    chatHistory: opts?.chatHistory,
+  };
+  const insight = analyzeLeadContext(autoContext);
+
+  if (insight.skipAutomation) return logs;
+
   for (const auto of automations) {
     if (auto.status !== "active" || auto.trigger !== trigger) continue;
 
+    const smart = auto.smartMode !== false;
     const steps = auto.actions as AutomationAction[];
+
     for (const action of steps) {
       if (typeof action === "string") continue;
+
+      const message = smart
+        ? enhanceAutomationMessage(action.message, autoContext, insight)
+        : renderMessage(action.message, lead);
+
+      const delayMinutes = smart
+        ? computeSmartDelay(action.delayMinutes, insight)
+        : action.delayMinutes;
+
       logs.push({
         id: crypto.randomUUID(),
         automationId: auto.id,
@@ -62,11 +91,14 @@ export function runAutomationsForTrigger(
         leadId: lead.id,
         leadName: lead.name,
         channel: action.channel,
-        message: renderMessage(action.message, lead),
-        delayMinutes: action.delayMinutes,
-        status: action.delayMinutes === 0 ? "sent" : "queued",
-        scheduledFor: new Date(now + action.delayMinutes * 60_000).toISOString(),
-        sentAt: action.delayMinutes === 0 ? new Date().toISOString() : undefined,
+        message,
+        delayMinutes,
+        status: delayMinutes === 0 ? "sent" : "queued",
+        scheduledFor: new Date(now + delayMinutes * 60_000).toISOString(),
+        sentAt: delayMinutes === 0 ? new Date().toISOString() : undefined,
+        intent: smart ? insight.intent : undefined,
+        sentiment: smart ? insight.sentiment : undefined,
+        buyingIntent: smart ? insight.buyingIntent : undefined,
       });
     }
   }
@@ -80,6 +112,7 @@ export function normalizeAutomation(auto: AutomationRecord): AutomationRecord {
     return {
       ...auto,
       trigger: (auto.trigger as AutomationTrigger) || "new_lead",
+      smartMode: auto.smartMode ?? true,
       actions: legacy.map((msg) => ({
         id: crypto.randomUUID(),
         channel: "whatsapp" as const,
@@ -91,6 +124,7 @@ export function normalizeAutomation(auto: AutomationRecord): AutomationRecord {
   return {
     ...auto,
     trigger: auto.trigger ?? "new_lead",
+    smartMode: auto.smartMode ?? true,
     actions: auto.actions?.length ? auto.actions : [createDefaultAction()],
   };
 }

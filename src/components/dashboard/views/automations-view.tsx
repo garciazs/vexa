@@ -48,11 +48,13 @@ export function AutomationsView() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState<AutomationTrigger>("new_lead");
+  const [smartMode, setSmartMode] = useState(true);
   const [actions, setActions] = useState<AutomationAction[]>([createDefaultAction("whatsapp")]);
 
   function resetForm() {
     setName("");
     setTrigger("new_lead");
+    setSmartMode(true);
     setActions([createDefaultAction("whatsapp")]);
     setEditingId(null);
     setShowForm(false);
@@ -62,6 +64,7 @@ export function AutomationsView() {
     setEditingId(auto.id);
     setName(auto.name);
     setTrigger(auto.trigger as AutomationTrigger);
+    setSmartMode(auto.smartMode !== false);
     setActions(Array.isArray(auto.actions) ? (auto.actions as AutomationAction[]) : []);
     setShowForm(true);
   }
@@ -70,9 +73,9 @@ export function AutomationsView() {
     e.preventDefault();
     if (!name.trim()) return;
     if (editingId) {
-      updateAutomation(editingId, { name: name.trim(), trigger, actions });
+      updateAutomation(editingId, { name: name.trim(), trigger, actions, smartMode });
     } else {
-      createAutomation({ name: name.trim(), trigger, actions });
+      createAutomation({ name: name.trim(), trigger, actions, smartMode });
     }
     resetForm();
   }
@@ -96,12 +99,12 @@ export function AutomationsView() {
     <>
       <Header
         title="Automações"
-        description="Workflows visuais e mensagens multicanal — clareza premium sem alterar a lógica"
+        description="Workflows inteligentes — IA contextual, intenção e mensagens naturais"
       />
       <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            Estilo BotConversa: configure gatilhos e sequências multicanal.
+            IA adapta mensagens ao contexto, intenção de compra e sentimento do lead.
           </p>
           <Button onClick={() => (showForm ? resetForm() : setShowForm(true))}>
             {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
@@ -140,6 +143,16 @@ export function AutomationsView() {
                     ))}
                   </select>
                 </div>
+
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={smartMode}
+                    onChange={(e) => setSmartMode(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  IA inteligente — personaliza mensagens, detecta intenção e ajusta timing
+                </label>
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -311,6 +324,25 @@ export function AutomationsView() {
                         {log.leadName ?? "Lead"} · {log.automationName}
                       </p>
                       <p className="truncate text-muted-foreground">{log.message}</p>
+                      {(log.intent || log.sentiment) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {log.intent && (
+                            <Badge variant="outline" className="text-[9px] capitalize">
+                              {log.intent}
+                            </Badge>
+                          )}
+                          {log.sentiment && (
+                            <Badge variant="outline" className="text-[9px] capitalize">
+                              {log.sentiment}
+                            </Badge>
+                          )}
+                          {log.buyingIntent && log.buyingIntent !== "low" && (
+                            <Badge variant="green" className="text-[9px]">
+                              compra {log.buyingIntent}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <Badge variant={log.status === "sent" ? "green" : "secondary"}>
                       {log.status === "sent" ? "Enviada" : "Agendada"}

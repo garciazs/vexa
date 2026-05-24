@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generatePageFromPrompt } from "@/lib/ai/page-generator";
-import { canCreatePage, normalizePlanId } from "@/lib/templates/catalog";
+import { canUseAIGeneration, normalizePlanId } from "@/lib/templates/catalog";
 import type { PlanId } from "@/lib/store/types";
 
 export async function POST(request: Request) {
@@ -9,22 +9,24 @@ export async function POST(request: Request) {
     const prompt = body.prompt as string | undefined;
     const planId = normalizePlanId(body.planId as PlanId | undefined);
     const pageCount = typeof body.pageCount === "number" ? body.pageCount : 0;
-    const lifetimeCreated =
-      typeof body.lifetimeCreated === "number" ? body.lifetimeCreated : pageCount;
+    const publishedTotal =
+      typeof body.publishedTotal === "number" ? body.publishedTotal : 0;
     const userImages = Array.isArray(body.userImages)
-      ? (body.userImages as string[]).filter((u) => typeof u === "string" && u.startsWith("data:image"))
+      ? (body.userImages as string[]).filter(
+          (u) => typeof u === "string" && u.startsWith("data:image")
+        )
       : [];
 
     if (!prompt || typeof prompt !== "string") {
       return NextResponse.json({ error: "Descrição obrigatória" }, { status: 400 });
     }
 
-    if (!canCreatePage(planId, pageCount, lifetimeCreated)) {
+    if (!canUseAIGeneration(planId, pageCount, publishedTotal)) {
       return NextResponse.json(
         {
           error:
             planId === "free"
-              ? "Plano Free: limite de 1 site atingido. Faça upgrade para criar mais."
+              ? "Plano Free: já publicou o seu site grátis. Assine para criar mais."
               : "Limite de sites do seu plano atingido.",
           code: "PAGE_LIMIT",
         },
@@ -32,7 +34,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const delay = planId === "free" || planId === "scale" ? 2000 : planId === "growth" ? 1600 : 1300;
+    const delay =
+      planId === "free" || planId === "scale" ? 2000 : planId === "growth" ? 1600 : 1300;
     await new Promise((r) => setTimeout(r, delay));
 
     const result = generatePageFromPrompt({ prompt, planId, userImages });

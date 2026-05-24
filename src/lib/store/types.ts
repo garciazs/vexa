@@ -8,6 +8,22 @@ export type BotNodeType = "message" | "options" | "delay";
 export type AutomationTrigger = "new_lead" | "lead_qualified" | "form_submit" | "chat_started";
 export type AutomationChannel = "whatsapp" | "instagram" | "web_chat" | "email";
 
+export type BotPersonalityId =
+  | "support"
+  | "sales"
+  | "consultant"
+  | "onboarding"
+  | "closer"
+  | "premium";
+
+export interface BotKnowledgeItem {
+  id: string;
+  title: string;
+  content: string;
+  keywords?: string[];
+  source?: "faq" | "url" | "document" | "system";
+}
+
 export interface BotFlowNode {
   id: string;
   type: BotNodeType;
@@ -73,6 +89,11 @@ export interface ChatbotRecord {
   welcomeMessage?: string;
   fallbackMessage?: string;
   flows?: BotFlowNode[];
+  personality?: BotPersonalityId;
+  knowledgeBase?: BotKnowledgeItem[];
+  /** Se true, usa só knowledge custom (sem defaults VEXA) */
+  useCustomKnowledgeOnly?: boolean;
+  smartMode?: boolean;
   connected?: boolean;
   connectedAccount?: string;
   conversations: number;
@@ -93,6 +114,7 @@ export interface AutomationRecord {
   trigger: AutomationTrigger | string;
   actions: AutomationAction[] | string[];
   status: AutoStatus;
+  smartMode?: boolean;
   runs: number;
   lastRunAt?: string;
   createdAt: string;
@@ -110,6 +132,9 @@ export interface MessageLog {
   status: "sent" | "queued";
   scheduledFor: string;
   sentAt?: string;
+  intent?: string;
+  sentiment?: string;
+  buyingIntent?: string;
 }
 
 export interface UserRecord {
@@ -124,7 +149,9 @@ export interface WorkspaceRecord {
   slug: string;
   plan: PlanId;
   domain?: string;
-  /** Total de sites já criados (Free: máx. 1 na vida da conta) */
+  /** Total de sites já publicados (Free: bloqueia 2.º site após publicar 1) */
+  landingPagesPublishedTotal?: number;
+  /** @deprecated migrado para landingPagesPublishedTotal */
   landingPagesCreatedTotal?: number;
 }
 

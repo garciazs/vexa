@@ -11,6 +11,7 @@ import {
 import { createBlock } from "@/lib/builder/block-catalog";
 import {
   canCreatePage,
+  canUseAIGeneration,
   canUseTemplate,
   getTemplate,
   getPageLimitMessage,
@@ -62,19 +63,28 @@ function load(): VexaWorkspaceData | null {
   }
 }
 
+function getPublishedTotal(data: VexaWorkspaceData): number {
+  const fromPages = data.landingPages?.filter((p) => p.status === "published").length ?? 0;
+  const stored = data.workspace.landingPagesPublishedTotal ?? 0;
+  return Math.max(fromPages, stored);
+}
+
 function migrate(data: VexaWorkspaceData): VexaWorkspaceData {
   const plan = normalizePlanId(data.workspace?.plan);
-  const pageCount = data.landingPages?.length ?? 0;
-  const lifetime =
-    data.workspace.landingPagesCreatedTotal ??
-    (plan === "free" && pageCount > 0 ? pageCount : pageCount);
+  const publishedFromPages = data.landingPages?.filter((p) => p.status === "published").length ?? 0;
+  const legacyCreated = data.workspace.landingPagesCreatedTotal ?? 0;
+  const publishedTotal = Math.max(
+    data.workspace.landingPagesPublishedTotal ?? 0,
+    publishedFromPages,
+    legacyCreated > 0 && publishedFromPages > 0 ? legacyCreated : publishedFromPages
+  );
 
   return {
     ...data,
     workspace: {
       ...data.workspace,
       plan,
-      landingPagesCreatedTotal: lifetime,
+      landingPagesPublishedTotal: publishedTotal,
     },
     messageLogs: data.messageLogs ?? [],
     domains: (data.domains ?? []).map((d) => ({ ...d })),
@@ -108,7 +118,7 @@ export function createWorkspace(input: {
       name: input.workspaceName,
       slug: slugify(input.workspaceName) || `workspace-${wsId.slice(0, 6)}`,
       plan: effectivePlan,
-      landingPagesCreatedTotal: 0,
+      landingPagesPublishedTotal: 0,
     },
     landingPages: [],
     leads: [],
@@ -146,6 +156,7 @@ interface WorkspaceContextValue {
     slug: string;
     blocks: PageBlock[];
     theme?: LandingPageRecord["theme"];
+    replacePageId?: string;
   }) => string;
   updateLandingPage: (
     id: string,
@@ -171,6 +182,7 @@ interface WorkspaceContextValue {
     name: string;
     trigger: AutomationTrigger;
     actions: AutomationAction[];
+    smartMode?: boolean;
   }) => void;
   updateAutomation: (id: string, patch: Partial<AutomationRecord>) => void;
   deleteAutomation: (id: string) => void;
@@ -192,6 +204,7 @@ interface WorkspaceContextValue {
     recentLeads: number;
   };
   canCreateLandingPage: boolean;
+  canUseAIGeneration: boolean;
   pageLimitReason: string | null;
 }
 
@@ -335,8 +348,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     (opts?: { name?: string; templateId?: string }) => {
       if (!data) return "";
       const plan = normalizePlanId(data.workspace.plan);
-      const lifetime = data.workspace.landingPagesCreatedTotal ?? 0;
-      if (!canCreatePage(plan, data.landingPages.length, lifetime)) return "";
+      const publishedTotal = getPublishedTotal(data);
+      if (!canCreatePage(plan, data.landingPages.length, publishedTotal)) return "";
       if (opts?.templateId) {
         const tpl = getTemplate(opts.templateId);
         if (!tpl || !canUseTemplate(plan, tpl)) return "";
@@ -381,10 +394,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           : data.onboardingSteps;
       persist({
         ...data,
-        workspace: {
-          ...data.workspace,
-          landingPagesCreatedTotal: lifetime + 1,
-        },
         landingPages: [...data.landingPages, page],
         onboardingSteps,
       });
@@ -399,17 +408,58 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       slug: string;
       blocks: LandingPageRecord["blocks"];
       theme?: LandingPageRecord["theme"];
+      replacePageId?: string;
     }) => {
       if (!data) return "";
       const plan = normalizePlanId(data.workspace.plan);
-      const lifetime = data.workspace.landingPagesCreatedTotal ?? 0;
-      if (!canCreatePage(plan, data.landingPages.length, lifetime)) return "";
+      const publishedTotal = getPublishedTotal(data);
+      const pageCount = data.landingPages.length;
+
+      const replaceTarget = input.replacePageId
+        ? data.landingPages.find((p) => p.id === input.replacePageId)
+        : undefined;
+
+      if (replaceTarget) {
+        if (replaceTarget.status === "published") return "";
+      } else if (!canCreatePage(plan, pageCount, publishedTotal)) {
+        return "";
+      }
 
       let slug = slugify(input.slug) || slugify(input.name) || "landing-ia";
       const baseSlug = slug;
       let n = 1;
-      while (data.landingPages.some((p) => p.slug === slug)) {
+      while (data.landingPages.some((p) => p.slug === slug && p.id !== replaceTarget?.id)) {
         slug = `${baseSlug}-${n++}`;
+      }
+
+      const blocks = input.blocks.map((b) => ({
+        ...b,
+        id: `block-${crypto.randomUUID()}`,
+        content: { ...b.content },
+      }));
+
+      const onboardingSteps = data.onboardingSteps.includes("template")
+        ? data.onboardingSteps
+        : [...data.onboardingSteps, "template"];
+
+      if (replaceTarget) {
+        persist({
+          ...data,
+          landingPages: data.landingPages.map((p) =>
+            p.id === replaceTarget.id
+              ? {
+                  ...p,
+                  name: input.name,
+                  slug,
+                  blocks,
+                  theme: input.theme ?? p.theme ?? "midnight",
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
+          onboardingSteps,
+        });
+        return replaceTarget.id;
       }
 
       const page: LandingPageRecord = {
@@ -417,11 +467,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         name: input.name,
         slug,
         status: "draft",
-        blocks: input.blocks.map((b) => ({
-          ...b,
-          id: `block-${crypto.randomUUID()}`,
-          content: { ...b.content },
-        })),
+        blocks,
         theme: input.theme ?? "midnight",
         views: 0,
         leadsCount: 0,
@@ -429,16 +475,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         updatedAt: new Date().toISOString(),
       };
 
-      const onboardingSteps = data.onboardingSteps.includes("template")
-        ? data.onboardingSteps
-        : [...data.onboardingSteps, "template"];
-
       persist({
         ...data,
-        workspace: {
-          ...data.workspace,
-          landingPagesCreatedTotal: lifetime + 1,
-        },
         landingPages: [...data.landingPages, page],
         onboardingSteps,
       });
@@ -517,8 +555,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         ? data.onboardingSteps
         : [...data.onboardingSteps, "publish"];
 
+      const wasPublished = page.status === "published";
+      const publishedTotal = getPublishedTotal(data);
+
       persist({
         ...data,
+        workspace: {
+          ...data.workspace,
+          landingPagesPublishedTotal: wasPublished ? publishedTotal : publishedTotal + 1,
+        },
         onboardingSteps,
         landingPages: data.landingPages.map((p) =>
           p.id === id
@@ -720,17 +765,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       name: string;
       trigger: AutomationTrigger;
       actions: AutomationAction[];
+      smartMode?: boolean;
     }) => {
       if (!data) return;
-      const auto: AutomationRecord = {
+      const auto: AutomationRecord = normalizeAutomation({
         id: crypto.randomUUID(),
         name: input.name,
         trigger: input.trigger,
         actions: input.actions,
+        smartMode: input.smartMode ?? true,
         status: "paused",
         runs: 0,
         createdAt: new Date().toISOString(),
-      };
+      });
       persist({
         ...data,
         automations: [...data.automations, auto],
@@ -907,17 +954,29 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return { pipelineValue, wonValue, winRate, avgDeal, byStage, recentLeads };
   }, [data]);
 
+  const publishedTotal = useMemo(() => (data ? getPublishedTotal(data) : 0), [data]);
+  const pageCount = data?.landingPages.length ?? 0;
+  const hasDraft = (data?.landingPages.some((p) => p.status === "draft") ?? false) && pageCount > 0;
+
   const canCreateLandingPage = useMemo(() => {
     if (!data) return false;
     const plan = normalizePlanId(data.workspace.plan);
-    const lifetime = data.workspace.landingPagesCreatedTotal ?? 0;
-    return canCreatePage(plan, data.landingPages.length, lifetime);
+    return canCreatePage(plan, data.landingPages.length, getPublishedTotal(data));
+  }, [data]);
+
+  const canUseAIGenerationFlag = useMemo(() => {
+    if (!data) return false;
+    const plan = normalizePlanId(data.workspace.plan);
+    return canUseAIGeneration(plan, data.landingPages.length, getPublishedTotal(data));
   }, [data]);
 
   const pageLimitReason = useMemo(() => {
     if (!data || canCreateLandingPage) return null;
-    return getPageLimitMessage(normalizePlanId(data.workspace.plan), true);
-  }, [data, canCreateLandingPage]);
+    return getPageLimitMessage(normalizePlanId(data.workspace.plan), true, {
+      hasDraft,
+      publishedTotal,
+    });
+  }, [data, canCreateLandingPage, hasDraft, publishedTotal]);
 
   const value: WorkspaceContextValue = {
     data,
@@ -958,6 +1017,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     crmMetrics,
     messageLogs: data?.messageLogs ?? [],
     canCreateLandingPage,
+    canUseAIGeneration: canUseAIGenerationFlag,
     pageLimitReason,
   };
 

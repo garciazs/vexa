@@ -26,7 +26,7 @@ export default function CadastroPage() {
       workspaceName: workspaceName.trim() || `${name.trim()} Workspace`,
       plan: "free",
     });
-    router.push("/onboarding");
+    router.push("/builder/ai");
   }
 
   return (
@@ -39,7 +39,7 @@ export default function CadastroPage() {
           </div>
           <CardTitle className="text-2xl">Crie a sua conta grátis</CardTitle>
           <CardDescription>
-            Plano Free — 1 site com IA premium. Sem cartão.
+            Plano Free — 1 site com IA premium. Crie, publique e só depois assine para mais.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -93,11 +93,12 @@ export default function CadastroPage() {
               />
             </div>
             <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-              <strong className="text-foreground">1 site incluído.</strong> Para mais sites,{" "}
+              <strong className="text-foreground">1 site incluído.</strong> Use a IA para criar e publicar
+              o site completo. Para um 2.º site,{" "}
               <Link href="/pricing" className="text-purple-bright hover:underline">
                 veja os planos pagos
-              </Link>{" "}
-              após criar a conta.
+              </Link>
+              .
             </p>
             <Button type="submit" variant="green" className="w-full">
               Começar grátis

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 type PageLimitBannerProps = {
   planId: PlanId;
   pageCount: number;
+  publishedTotal?: number;
   atLimit: boolean;
   className?: string;
   existingPageId?: string;
@@ -20,6 +21,7 @@ type PageLimitBannerProps = {
 export function PageLimitBanner({
   planId,
   pageCount,
+  publishedTotal = 0,
   atLimit,
   className,
   existingPageId,
@@ -27,12 +29,17 @@ export function PageLimitBanner({
 }: PageLimitBannerProps) {
   if (!atLimit && planId !== "free") return null;
 
-  const message = getPageLimitMessage(planId, atLimit);
+  const hasDraft = pageCount > 0 && publishedTotal === 0;
+  const message = getPageLimitMessage(planId, atLimit, { hasDraft, publishedTotal });
 
   if (compact && !atLimit) {
     return (
       <p className={cn("text-xs text-muted-foreground", className)}>
-        {pageCount}/1 site usado no plano Free
+        {pageCount === 0
+          ? "Free: crie 1 site com IA e publique quando estiver pronto"
+          : publishedTotal === 0
+            ? "Rascunho pronto — publique para concluir o site grátis"
+            : `${publishedTotal}/1 site publicado no Free`}
       </p>
     );
   }

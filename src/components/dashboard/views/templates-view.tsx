@@ -21,9 +21,13 @@ import { cn } from "@/lib/utils";
 
 export function TemplatesView() {
   const router = useRouter();
-  const { data, createLandingPage, canCreateLandingPage } = useWorkspace();
+  const { data, createLandingPage, canCreateLandingPage, canUseAIGeneration } = useWorkspace();
   const plan = normalizePlanId(data?.workspace.plan) as PlanId;
   const pageCount = data?.landingPages.length ?? 0;
+  const publishedTotal = Math.max(
+    data?.workspace.landingPagesPublishedTotal ?? 0,
+    data?.landingPages.filter((p) => p.status === "published").length ?? 0
+  );
   const canCreateMore = canCreateLandingPage;
 
   function applyTemplate(templateId: string, templateName: string) {
@@ -50,7 +54,8 @@ export function TemplatesView() {
         <PageLimitBanner
           planId={plan}
           pageCount={pageCount}
-          atLimit={!canCreateMore}
+          publishedTotal={publishedTotal}
+          atLimit={!canUseAIGeneration}
           existingPageId={data?.landingPages[0]?.id}
           className="mb-6"
         />

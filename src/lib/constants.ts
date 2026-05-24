@@ -10,11 +10,11 @@ export const PLANS = [
     id: "free",
     name: "Free",
     price: 0,
-    description: "1 site grátis com IA 100% — depois assine para criar mais.",
+    description: "1 site grátis com IA 100% — crie, publique e só depois assine para mais.",
     popular: false,
     features: [
-      "Apenas 1 site (sem segundo site no Free)",
-      "IA premium 100% no seu site",
+      "1 site grátis com IA premium (criar + publicar)",
+      "Regenerar com IA até publicar",
       "Todas as secções premium incluídas",
       "Até 3 fotos suas",
       "Editor e publicação completos",
@@ -88,7 +88,7 @@ export const DASHBOARD_NAV = [
   { href: "/automations", label: "Automações", icon: "Workflow" },
   { href: "/analytics", label: "Analytics", icon: "BarChart3" },
   { href: "/templates", label: "Templates", icon: "Sparkles" },
-  { href: "/billing", label: "Billing", icon: "CreditCard" },
+  { href: "/billing", label: "Planos", icon: "CreditCard" },
   { href: "/settings", label: "Configurações", icon: "Settings" },
   { href: "/help", label: "Ajuda", icon: "HelpCircle" },
 ] as const;

@@ -22,11 +22,16 @@ const thumbnailStyles = [
 
 export function BuilderListView() {
   const router = useRouter();
-  const { data, createLandingPage, canCreateLandingPage } = useWorkspace();
+  const { data, createLandingPage, canCreateLandingPage, canUseAIGeneration } = useWorkspace();
   const pages = data?.landingPages ?? [];
   const planId = normalizePlanId(data?.workspace.plan) as PlanId;
   const pageCount = pages.length;
+  const publishedTotal = Math.max(
+    data?.workspace.landingPagesPublishedTotal ?? 0,
+    pages.filter((p) => p.status === "published").length
+  );
   const canCreateMore = canCreateLandingPage;
+  const canUseAI = canUseAIGeneration;
   const firstPageId = pages[0]?.id;
 
   function handleNewPage() {
@@ -46,12 +51,13 @@ export function BuilderListView() {
         <PageLimitBanner
           planId={planId}
           pageCount={pageCount}
-          atLimit={!canCreateMore}
+          publishedTotal={publishedTotal}
+          atLimit={!canUseAI}
           existingPageId={firstPageId}
           className="mb-6"
         />
 
-        {canCreateMore ? (
+        {canUseAI ? (
           <Link href="/builder/ai">
             <Card className="glass mb-6 overflow-hidden border-purple/30 bg-gradient-to-r from-purple/15 via-transparent to-green/10 transition hover:border-purple/50">
               <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
@@ -68,8 +74,8 @@ export function BuilderListView() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Descreva o negócio, cores e envie fotos — site pronto para vender.
-                      {planId === "free" && " É o seu único site no plano Free."}
+                      Descreva o negócio, cores e envie fotos — site completo pronto para publicar.
+                      {planId === "free" && publishedTotal === 0 && " Grátis até publicar 1 site."}
                     </p>
                   </div>
                 </div>
