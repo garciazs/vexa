@@ -80,7 +80,7 @@ const INTENT_PATTERNS: { intent: DetectedIntent; patterns: RegExp[] }[] = [
   { intent: "domain", patterns: [/domínio|dominio|dns|site n[aã]o entra|n[aã]o abre|offline|fora do ar|hosped|url n/i] },
   { intent: "support", patterns: [/problema|erro|bug|ajuda|suporte|n[aã]o funciona|travou|quebr|mano meu/i] },
   { intent: "automation", patterns: [/automa|workflow|mensagem autom|whatsapp|instagram dm/i] },
-  { intent: "demo", patterns: [/demo|agendar|reuni[aã]o|call|conversar|marcar|hor[aá]rio/i] },
+  { intent: "demo", patterns: [/marca(cao|ção)|agendar|agendamento|reserv|demo|reuni[aã]o|call|conversar|hor[aá]rio|consulta|booking/i] },
   { intent: "complaint", patterns: [/p[eé]ssimo|horr[ií]vel|demora|frustrad|irritad|reclama|lixo|merda/i] },
   {
     intent: "follow_up",

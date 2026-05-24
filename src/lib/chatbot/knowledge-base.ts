@@ -116,6 +116,14 @@ export function createDefaultKnowledge(): KnowledgeItem[] {
       source: "faq",
     },
     {
+      id: "faq-scheduling",
+      title: "Agendar demo ou conversa",
+      content:
+        "Para agendar uma demo ou conversa de 15 min, indique o **melhor dia e hora** (ex: terça às 15h). Prefere falar já com alguém? Digite **humano** no chat.",
+      keywords: ["agendar", "marcacao", "marcação", "demo", "reuniao", "reunião", "horario", "horário", "reserva", "consulta", "booking", "call"],
+      source: "faq",
+    },
+    {
       id: "faq-hours",
       title: "Horário de atendimento",
       content:

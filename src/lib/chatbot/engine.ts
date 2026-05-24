@@ -17,6 +17,7 @@ import {
   INTENT_FAQ_FILTER,
   safeUnknownAnswer,
 } from "@/lib/chatbot/grounded-answers";
+import { answerSchedulingRequest, isSchedulingRequest } from "@/lib/chatbot/scheduling";
 import {
   indexFlowAsKnowledge,
   INTENT_HANDLERS,
@@ -91,24 +92,26 @@ function buildDomainSupportReply(text: string): string {
   return "Domínio personalizado (Growth/Scale): ligue em Domínios → configure DNS → verifique. Quer o passo-a-passo detalhado?";
 }
 
-/** RAG estrito — só query do utilizador, score alto, filtro por intenção */
+/** RAG estrito — só FAQs, sem nós de fluxo (evita misturar mensagens do bot) */
 function searchGroundedKnowledge(
   userText: string,
   intent: DetectedIntent,
-  knowledgeIndex: ReturnType<typeof buildSearchIndex>
+  knowledgeIndex: ReturnType<typeof buildSearchIndex>,
+  flowKnowledge: ReturnType<typeof indexFlowAsKnowledge>
 ): string | null {
+  const faqOnly = knowledgeIndex.filter(
+    (item) => !flowKnowledge.some((f) => f.id === item.id)
+  );
   const allowedIds = INTENT_FAQ_FILTER[intent];
-  const pool = allowedIds
-    ? knowledgeIndex.filter((item) => allowedIds.includes(item.id))
-    : knowledgeIndex;
+  const pool = allowedIds ? faqOnly.filter((item) => allowedIds.includes(item.id)) : faqOnly;
 
   const hits = retrieveKnowledgeEnhanced(userText, pool, {
-    minScore: 2.5,
-    limit: 2,
+    minScore: 3,
+    limit: 1,
   });
   if (hits.length === 0) return null;
-  if (hits[0].score < 3) return null;
-  return synthesizeKnowledgeAnswer(hits, { maxLength: 600 });
+  if (hits[0].score < 4) return null;
+  return synthesizeKnowledgeAnswer(hits, { maxLength: 500 });
 }
 
 function resolvePlanForQuestion(
@@ -152,6 +155,15 @@ function buildSmartReply(
   const yesNo = tryAnswerYesNo(userText, state.context);
   if (yesNo) {
     return { text: applyPersonality(yesNo, personality), intent: "follow_up", sentiment };
+  }
+
+  if (isSchedulingRequest(userText) || intent === "demo") {
+    return {
+      text: applyPersonality(answerSchedulingRequest(), personality),
+      intent: "demo",
+      sentiment,
+      suggestFollowUp: "Indique dia e hora (ex: quinta 14h).",
+    };
   }
 
   const currentNode = findNode(flows, state.currentNodeId);
@@ -212,7 +224,7 @@ function buildSmartReply(
   }
 
   if (intent === "domain" || (intent === "support" && /site|dom|entra|abre|offline/i.test(userText))) {
-    const domainKb = searchGroundedKnowledge(userText, "domain", knowledgeIndex);
+    const domainKb = searchGroundedKnowledge(userText, "domain", knowledgeIndex, flowKnowledge);
     return {
       text: applyPersonality(domainKb ?? buildDomainSupportReply(userText), personality, {
         includeOpener: sentiment === "negative" || sentiment === "urgent",
@@ -256,36 +268,23 @@ function buildSmartReply(
     };
   }
 
-  if (intent === "demo") {
-    return {
-      text: applyPersonality(
-        "Ótimo! Qual dia e horário funcionam para uma demo de 15 min? (ex: terça 15h)",
-        personality,
-        { includeOpener: true }
-      ),
-      intent,
-      sentiment,
-    };
-  }
-
   if (intent === "cancel" || intent === "billing") {
-    const billingKb = searchGroundedKnowledge(userText, intent, knowledgeIndex);
+    const billingKb = searchGroundedKnowledge(userText, intent, knowledgeIndex, flowKnowledge);
     return {
       text: applyPersonality(
         billingKb ??
           "Para cancelar: vá em **Planos** → **Gerir subscrição** (portal Stripe) → cancelar plano. O acesso mantém-se até fim do período pago.",
-        personality,
-        { includeOpener: true }
+        personality
       ),
       intent,
       sentiment,
     };
   }
 
-  const ragAnswer = searchGroundedKnowledge(userText, intent, knowledgeIndex);
+  const ragAnswer = searchGroundedKnowledge(userText, intent, knowledgeIndex, flowKnowledge);
   if (ragAnswer) {
     return {
-      text: applyPersonality(ragAnswer, personality, { includeOpener: intent === "unknown" }),
+      text: applyPersonality(ragAnswer, personality),
       intent: intent === "unknown" ? "features" : intent,
       sentiment,
     };

@@ -3,6 +3,13 @@ import type { ConversationContext, ConversationTurn, DetectedIntent, KnowledgeIt
 import { normalizeText, tokenize } from "@/lib/ai/conversation-brain";
 import { tokensMatchQuery } from "@/lib/ai/synonyms";
 
+const RAG_STOPWORDS = new Set([
+  "de", "da", "do", "das", "dos", "uma", "um", "uns", "umas",
+  "o", "a", "os", "as", "para", "com", "preciso", "quero", "como", "que",
+  "em", "no", "na", "meu", "minha", "seu", "sua", "the", "is", "are",
+  "eu", "voce", "você", "por", "sobre", "isso",
+]);
+
 /** Converte nós do fluxo em entradas pesquisáveis */
 export function indexFlowAsKnowledge(flows: BotFlowNode[]): KnowledgeItem[] {
   return flows
@@ -41,7 +48,9 @@ export function retrieveKnowledgeEnhanced(
   const limit = opts?.limit ?? 3;
   const minScore = opts?.minScore ?? 1.5;
   const fullQuery = opts?.augmentedQuery ?? query;
-  const queryTokens = tokenize(fullQuery);
+  const queryTokens = tokenize(fullQuery).filter(
+    (t) => !RAG_STOPWORDS.has(t) && t.length > 2
+  );
 
   if (queryTokens.length === 0) return [];
 
@@ -71,21 +80,13 @@ export function retrieveKnowledgeEnhanced(
   return scored.slice(0, limit);
 }
 
-/** Sintetiza resposta natural a partir de múltiplos chunks */
+/** Sintetiza resposta — um único chunk, sem misturar tópicos */
 export function synthesizeKnowledgeAnswer(
   hits: { item: KnowledgeItem; score: number }[],
   opts?: { maxLength?: number }
 ): string {
   if (hits.length === 0) return "";
-  const primary = hits[0].item;
-  let answer = primary.content;
-
-  if (hits.length > 1 && hits[1].score >= hits[0].score * 0.55) {
-    const extra = hits[1].item;
-    if (!answer.includes(extra.content.slice(0, 40))) {
-      answer += `\n\n**${extra.title}:** ${extra.content}`;
-    }
-  }
+  let answer = hits[0].item.content;
 
   if (opts?.maxLength && answer.length > opts.maxLength) {
     answer = answer.slice(0, opts.maxLength).trim() + "…";

@@ -127,6 +127,7 @@ export const INTENT_FAQ_FILTER: Partial<Record<DetectedIntent, string[]>> = {
   billing: ["faq-billing", "plan-free", "plan-starter", "plan-growth", "plan-scale"],
   account: ["faq-account"],
   compare: ["faq-compare", "plan-free", "plan-starter", "plan-growth", "plan-scale"],
+  demo: ["faq-scheduling", "faq-hours"],
   cancel: ["faq-billing"],
 };
 

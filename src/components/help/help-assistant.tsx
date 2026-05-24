@@ -22,6 +22,7 @@ import {
   INTENT_FAQ_FILTER,
   safeUnknownAnswer,
 } from "@/lib/chatbot/grounded-answers";
+import { answerSchedulingRequest, isSchedulingRequest } from "@/lib/chatbot/scheduling";
 import {
   resolveFollowUpAnswer,
   retrieveKnowledgeEnhanced,
@@ -45,6 +46,13 @@ function getReply(
   const yesNo = tryAnswerYesNo(userText, context);
   if (yesNo) return { text: applyPersonality(yesNo, personality), intent: "follow_up" };
 
+  if (isSchedulingRequest(userText) || intent === "demo") {
+    return {
+      text: applyPersonality(answerSchedulingRequest(), personality),
+      intent: "demo",
+    };
+  }
+
   const followUp = resolveFollowUpAnswer(userText, context, history);
   if (followUp) {
     return { text: applyPersonality(followUp, personality, { includeOpener: true }), intent: "follow_up" };
@@ -65,12 +73,12 @@ function getReply(
   const allowedIds = INTENT_FAQ_FILTER[intent];
   const pool = allowedIds ? HELP_KNOWLEDGE.filter((k) => allowedIds.includes(k.id)) : HELP_KNOWLEDGE;
   const hits = retrieveKnowledgeEnhanced(userText, pool, {
-    minScore: 2.5,
-    limit: 2,
+    minScore: 4,
+    limit: 1,
   });
-  if (hits.length > 0) {
+  if (hits.length > 0 && hits[0].score >= 4) {
     return {
-      text: applyPersonality(synthesizeKnowledgeAnswer(hits), personality, { includeOpener: true }),
+      text: applyPersonality(synthesizeKnowledgeAnswer(hits), personality),
       intent: intent === "unknown" ? "features" : intent,
     };
   }
