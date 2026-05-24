@@ -1,0 +1,11 @@
+═══════════════════════════════════════════════════════════
+  VEXA — projeto separado da Nexly
+═══════════════════════════════════════════════════════════
+
+  D:\VEXA     → este projeto (VEXA)
+  D:\nexly    → Nexly (não misturar)
+
+No Cursor:
+  File → Open Folder → D:\VEXA
+
+Chat novo → descreva o que quer no VEXA.

@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  workspaces    WorkspaceMember[]
+  subscriptions Subscription[]
+}
+
+model Workspace {
+  id           String            @id @default(cuid())
+  name         String
+  slug         String            @unique
+  domain       String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  members      WorkspaceMember[]
+  landingPages LandingPage[]
+  leads        Lead[]
+  chatbots     Chatbot[]
+  automations  Automation[]
+  subscriptions Subscription[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  role        String    @default("member")
+  userId      String
+  workspaceId String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model LandingPage {
+  id             String    @id @default(cuid())
+  name           String
+  slug           String
+  status         String    @default("draft")
+  content        Json?
+  conversionRate Float     @default(0)
+  views          Int       @default(0)
+  leadsCount     Int       @default(0)
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([workspaceId, slug])
+}
+
+model Lead {
+  id          String    @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  company     String?
+  score       Int       @default(0)
+  value       Float     @default(0)
+  status      String    @default("new")
+  source      String?
+  tags        String[]  @default([])
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Chatbot {
+  id             String    @id @default(cuid())
+  name           String
+  status         String    @default("training")
+  channel        String    @default("web")
+  config         Json?
+  conversations  Int       @default(0)
+  conversionRate Float     @default(0)
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Automation {
+  id          String    @id @default(cuid())
+  name        String
+  trigger     String
+  actions     Json
+  status      String    @default("paused")
+  runs        Int       @default(0)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  plan                 String
+  status               String    @default("trialing")
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+  userId               String
+  workspaceId          String
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
