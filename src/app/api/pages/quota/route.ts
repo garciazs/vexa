@@ -5,6 +5,7 @@ import {
   incrementPageQuota,
   type QuotaAction,
 } from "@/lib/billing/page-quota-store";
+import { assertWorkspaceMatchesRequest } from "@/lib/auth/workspace-request";
 import { checkRateLimit, getClientIp, hashIp } from "@/lib/security/rate-limit";
 import { normalizePlanId } from "@/lib/templates/catalog";
 import type { PlanId } from "@/lib/store/types";
@@ -14,6 +15,9 @@ export async function GET(request: Request) {
   const workspaceId = searchParams.get("workspaceId");
   if (!workspaceId) {
     return NextResponse.json({ error: "workspaceId obrigatório" }, { status: 400 });
+  }
+  if (!assertWorkspaceMatchesRequest(request.headers.get("cookie"), workspaceId)) {
+    return NextResponse.json({ error: "Sessão inválida" }, { status: 403 });
   }
   const quota = await getWorkspaceQuota(workspaceId);
   return NextResponse.json({ quota });
@@ -32,8 +36,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
     }
 
+    if (!assertWorkspaceMatchesRequest(request.headers.get("cookie"), workspaceId)) {
+      return NextResponse.json({ error: "Sessão inválida", code: "SESSION" }, { status: 403 });
+    }
+
     const ip = getClientIp(request);
     const ipHash = hashIp(ip);
+    const deviceFingerprint =
+      typeof body.deviceFingerprint === "string" ? body.deviceFingerprint : undefined;
     const rateKey = `${workspaceId}:${action}:${ipHash}`;
 
     const rate = checkRateLimit(rateKey, action === "create" ? 5 : 10, 60_000);
@@ -56,6 +66,7 @@ export async function POST(request: Request) {
       workspaceId,
       action,
       ipHash,
+      deviceFingerprint,
       replaceExisting,
       clientPageCount,
     });
@@ -72,6 +83,7 @@ export async function POST(request: Request) {
         workspaceId,
         action,
         ipHash,
+        deviceFingerprint,
         planId,
       });
       return NextResponse.json({ allowed: true, quota: updated });

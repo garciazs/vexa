@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Check, Crown, Lock, Sparkles, Wand2 } from "lucide-react";
+import { useUpgradeModal } from "@/components/billing/upgrade-modal-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,8 @@ export function FreeUpgradeWall({
   className,
   compact = false,
 }: FreeUpgradeWallProps) {
+  const { openUpgradeModal } = useUpgradeModal();
+
   if (compact) {
     return (
       <Card className={cn("glass border-purple/40 bg-gradient-to-br from-purple/15 via-background to-green/10", className)}>
@@ -42,11 +45,19 @@ export function FreeUpgradeWall({
                 <Link href={`/builder/${existingPageId}`}>Editar site</Link>
               </Button>
             )}
-            <Button variant="green" size="sm" asChild>
-              <Link href="/billing">
-                <Crown className="h-4 w-4" />
-                Assinar VEXA
-              </Link>
+            <Button
+              variant="green"
+              size="sm"
+              onClick={() =>
+                openUpgradeModal({
+                  existingPageId,
+                  description:
+                    "Torne-se Premium para criar websites ilimitados, IA avançada e recursos profissionais.",
+                })
+              }
+            >
+              <Crown className="h-4 w-4" />
+              Assinar VEXA
             </Button>
           </div>
         </CardContent>
@@ -86,11 +97,20 @@ export function FreeUpgradeWall({
         </ul>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <Button variant="green" size="lg" className="gap-2 shadow-lg shadow-green/20" asChild>
-            <Link href="/billing">
-              <Crown className="h-5 w-5" />
-              Assinar VEXA — a partir de €29/mês
-            </Link>
+          <Button
+            variant="green"
+            size="lg"
+            className="gap-2 shadow-lg shadow-green/20"
+            onClick={() =>
+              openUpgradeModal({
+                existingPageId,
+                description:
+                  "Torne-se Premium para criar websites ilimitados, acessar IA avançada, templates premium e recursos profissionais.",
+              })
+            }
+          >
+            <Crown className="h-5 w-5" />
+            Assinar VEXA — a partir de €29/mês
           </Button>
           {existingPageId && (
             <Button variant="outline" size="lg" asChild>

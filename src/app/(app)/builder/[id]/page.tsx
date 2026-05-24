@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { BLOCK_CATALOG, createBlock } from "@/lib/builder/block-catalog";
 import { getTemplate } from "@/lib/templates/catalog";
+import { useUpgradeModal } from "@/components/billing/upgrade-modal-provider";
 import { useWorkspace } from "@/lib/store/workspace-provider";
 import type { PageBlock } from "@/lib/store/types";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,7 @@ export default function BuilderEditorPage() {
   const id = params.id as string;
   const { data, getLandingPage, updateLandingPage, publishLandingPage, linkDomainToPage } =
     useWorkspace();
+  const { openUpgradeModal } = useUpgradeModal();
   const page = getLandingPage(id);
 
   const [blocks, setBlocks] = useState<PageBlock[]>([]);
@@ -58,6 +60,7 @@ export default function BuilderEditorPage() {
   const [saved, setSaved] = useState(false);
   const [showLivePreview, setShowLivePreview] = useState(true);
   const [publishModal, setPublishModal] = useState<{ publicUrl: string } | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     if (page) {
@@ -115,11 +118,25 @@ export default function BuilderEditorPage() {
   }
 
   async function handlePublish() {
-    updateLandingPage(id, { blocks });
-    const result = await publishLandingPage(id);
-    setSaved(true);
-    if (result?.publicUrl) {
-      setPublishModal(result);
+    if (publishing) return;
+    setPublishing(true);
+    try {
+      updateLandingPage(id, { blocks });
+      const result = await publishLandingPage(id);
+      setSaved(true);
+      if (result.ok) {
+        setPublishModal({ publicUrl: result.publicUrl });
+      } else {
+        openUpgradeModal({
+          title: "Torne-se Premium",
+          description:
+            result.message ??
+            "No plano Free só pode publicar 1 site. Assine para criar e publicar sites ilimitados.",
+          existingPageId: id,
+        });
+      }
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -196,9 +213,9 @@ export default function BuilderEditorPage() {
                 <Save className="h-4 w-4" />
                 Guardar
               </Button>
-              <Button size="sm" onClick={handlePublish}>
+              <Button size="sm" onClick={handlePublish} disabled={publishing}>
                 <Upload className="h-4 w-4" />
-                Publicar
+                {publishing ? "A publicar…" : "Publicar"}
               </Button>
             </div>
           </div>

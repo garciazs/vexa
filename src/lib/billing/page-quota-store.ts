@@ -8,6 +8,7 @@ export interface WorkspacePageQuota {
   workspaceId: string;
   pagesCreated: number;
   pagesPublished: number;
+  generationsUsed: number;
   updatedAt: string;
 }
 
@@ -15,6 +16,7 @@ interface IpQuotaRecord {
   ipHash: string;
   freeCreations: number;
   workspaceIds: string[];
+  deviceFingerprints: string[];
   updatedAt: string;
 }
 
@@ -27,6 +29,8 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const STORE_PATH = path.join(DATA_DIR, "page-quotas.json");
 
 const MAX_FREE_CREATIONS_PER_IP = 3;
+const MAX_FREE_CREATIONS_PER_DEVICE = 2;
+const MAX_FREE_GENERATIONS_PER_WORKSPACE = 12;
 
 async function ensureStore(): Promise<PageQuotaStore> {
   try {
@@ -50,6 +54,7 @@ export async function getWorkspaceQuota(workspaceId: string): Promise<WorkspaceP
       workspaceId,
       pagesCreated: 0,
       pagesPublished: 0,
+      generationsUsed: 0,
       updatedAt: new Date().toISOString(),
     }
   );
@@ -69,6 +74,7 @@ export async function checkPageQuota(params: {
   workspaceId: string;
   action: QuotaAction;
   ipHash?: string;
+  deviceFingerprint?: string;
   replaceExisting?: boolean;
   clientPageCount?: number;
 }): Promise<QuotaCheckResult> {
@@ -80,15 +86,27 @@ export async function checkPageQuota(params: {
     workspaceId: params.workspaceId,
     pagesCreated: 0,
     pagesPublished: 0,
+    generationsUsed: 0,
     updatedAt: new Date().toISOString(),
   };
 
   const base = { quota, planId: id };
   const clientCount = params.clientPageCount ?? 0;
   const effectiveCreated = Math.max(quota.pagesCreated, clientCount);
+  const deviceFp = params.deviceFingerprint?.slice(0, 64);
 
   if (params.action === "create") {
-    if (params.replaceExisting) return { allowed: true, ...base };
+    if (params.replaceExisting) {
+      if (maxPages === Infinity || effectiveCreated >= maxPages) {
+        return { allowed: true, ...base };
+      }
+      return {
+        allowed: false,
+        code: "PAGE_LIMIT",
+        message: "Limite do plano atingido. Não é possível criar mais sites.",
+        ...base,
+      };
+    }
     if (maxPages !== Infinity && effectiveCreated >= maxPages) {
       return {
         allowed: false,
@@ -100,24 +118,9 @@ export async function checkPageQuota(params: {
         ...base,
       };
     }
-    if (id === "free" && params.ipHash) {
-      const ipRec = store.ips[params.ipHash] ?? {
-        ipHash: params.ipHash,
-        freeCreations: 0,
-        workspaceIds: [],
-        updatedAt: new Date().toISOString(),
-      };
-      if (
-        ipRec.freeCreations >= MAX_FREE_CREATIONS_PER_IP &&
-        !ipRec.workspaceIds.includes(params.workspaceId)
-      ) {
-        return {
-          allowed: false,
-          code: "IP_LIMIT",
-          message: "Limite de testes grátis atingido nesta rede. Faça upgrade ou contacte suporte.",
-          ...base,
-        };
-      }
+    if (id === "free") {
+      const ipLimit = checkFreeIpLimit(store, params.workspaceId, params.ipHash, deviceFp);
+      if (!ipLimit.allowed) return { ...ipLimit, ...base };
     }
     return { allowed: true, ...base };
   }
@@ -149,13 +152,78 @@ export async function checkPageQuota(params: {
       ...base,
     };
   }
+
+  if (id === "free") {
+    const ipLimit = checkFreeIpLimit(store, params.workspaceId, params.ipHash, deviceFp);
+    if (!ipLimit.allowed) return { ...ipLimit, ...base };
+
+    if (quota.generationsUsed >= MAX_FREE_GENERATIONS_PER_WORKSPACE) {
+      return {
+        allowed: false,
+        code: "RATE_LIMIT",
+        message: "Muitas gerações de teste. Assine o VEXA para continuar com IA ilimitada.",
+        ...base,
+      };
+    }
+  }
+
   return { allowed: true, ...base };
+}
+
+function checkFreeIpLimit(
+  store: PageQuotaStore,
+  workspaceId: string,
+  ipHash?: string,
+  deviceFingerprint?: string
+): { allowed: boolean; code?: "IP_LIMIT"; message?: string } {
+  if (ipHash) {
+    const ipRec = store.ips[ipHash] ?? {
+      ipHash,
+      freeCreations: 0,
+      workspaceIds: [],
+      deviceFingerprints: [],
+      updatedAt: new Date().toISOString(),
+    };
+    if (
+      ipRec.freeCreations >= MAX_FREE_CREATIONS_PER_IP &&
+      !ipRec.workspaceIds.includes(workspaceId)
+    ) {
+      return {
+        allowed: false,
+        code: "IP_LIMIT",
+        message: "Limite de testes grátis atingido nesta rede. Faça upgrade ou contacte suporte.",
+      };
+    }
+  }
+
+  if (deviceFingerprint) {
+    const workspacesForDevice = new Set<string>();
+    for (const rec of Object.values(store.ips)) {
+      const devices = rec.deviceFingerprints ?? [];
+      if (devices.includes(deviceFingerprint)) {
+        for (const ws of rec.workspaceIds ?? []) workspacesForDevice.add(ws);
+      }
+    }
+    if (
+      workspacesForDevice.size >= MAX_FREE_CREATIONS_PER_DEVICE &&
+      !workspacesForDevice.has(workspaceId)
+    ) {
+      return {
+        allowed: false,
+        code: "IP_LIMIT",
+        message: "Limite de testes grátis neste dispositivo. Assine o VEXA para continuar.",
+      };
+    }
+  }
+
+  return { allowed: true };
 }
 
 export async function incrementPageQuota(params: {
   workspaceId: string;
-  action: "create" | "publish";
+  action: "create" | "publish" | "generate";
   ipHash?: string;
+  deviceFingerprint?: string;
   planId?: PlanId;
 }) {
   const store = await ensureStore();
@@ -164,13 +232,16 @@ export async function incrementPageQuota(params: {
     workspaceId: params.workspaceId,
     pagesCreated: 0,
     pagesPublished: 0,
+    generationsUsed: 0,
     updatedAt: now,
   };
 
   if (params.action === "create") {
     existing.pagesCreated += 1;
-  } else {
+  } else if (params.action === "publish") {
     existing.pagesPublished += 1;
+  } else {
+    existing.generationsUsed += 1;
   }
   existing.updatedAt = now;
   store.workspaces[params.workspaceId] = existing;
@@ -180,11 +251,16 @@ export async function incrementPageQuota(params: {
       ipHash: params.ipHash,
       freeCreations: 0,
       workspaceIds: [],
+      deviceFingerprints: [],
       updatedAt: now,
     };
     if (!ipRec.workspaceIds.includes(params.workspaceId)) {
       ipRec.workspaceIds.push(params.workspaceId);
       ipRec.freeCreations += 1;
+    }
+    const fp = params.deviceFingerprint?.slice(0, 64);
+    if (fp && !ipRec.deviceFingerprints.includes(fp)) {
+      ipRec.deviceFingerprints.push(fp);
     }
     ipRec.updatedAt = now;
     store.ips[params.ipHash] = ipRec;

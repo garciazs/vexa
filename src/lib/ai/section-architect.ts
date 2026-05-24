@@ -9,7 +9,8 @@ function block(type: string, label: string, content: Record<string, string>): Pa
   return { id: `block-${crypto.randomUUID()}`, type, label, content };
 }
 
-function paletteMeta(p: VisualStrategy["palette"]): Record<string, string> {
+function paletteMeta(strategy: VisualStrategy): Record<string, string> {
+  const p = strategy.palette;
   return {
     hideBranding: "true",
     primaryColor: p.primary,
@@ -20,7 +21,8 @@ function paletteMeta(p: VisualStrategy["palette"]): Record<string, string> {
     mutedColor: p.muted,
     gradient: p.gradient,
     colorMode: p.mode,
-    typography: p.mode === "light" ? "sans-display" : "sans-modern",
+    typography: strategy.typography,
+    visualStyle: strategy.visualStyle,
   };
 }
 
@@ -52,7 +54,7 @@ function buildSection(
       });
     case "hero":
       return block("hero", "Hero", {
-        layout: "premium-split",
+        layout: (meta.heroLayout as string) || "premium-split",
         badge: copy.hero.badge,
         headline: copy.hero.headline,
         subtitle: copy.hero.subtitle,
@@ -249,7 +251,7 @@ export function buildPremiumBlocks(
   const images = getIndustryImages(strategy.industry);
   const stock = [images.hero, ...images.features, ...images.gallery, images.form, images.cta];
   const imgs = distributeImages(stock, userImages.slice(0, tier.maxUserImages));
-  const meta = paletteMeta(strategy.palette);
+  const meta = { ...paletteMeta(strategy), heroLayout: strategy.heroLayout };
 
   const blocks: PageBlock[] = [];
   for (const section of strategy.sections) {

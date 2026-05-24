@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkPageQuota, incrementPageQuota } from "@/lib/billing/page-quota-store";
+import { assertWorkspaceMatchesRequest } from "@/lib/auth/workspace-request";
 import { resolvePlanForWorkspace } from "@/lib/billing/subscription-store";
 import { getPublishedPage, publishPage, type PublishedPageRecord } from "@/lib/publish/store";
 import { checkRateLimit, getClientIp, hashIp } from "@/lib/security/rate-limit";
@@ -12,8 +13,18 @@ export async function POST(request: Request) {
     }
 
     const workspaceId = body.workspaceId;
+    if (!assertWorkspaceMatchesRequest(request.headers.get("cookie"), workspaceId)) {
+      return NextResponse.json({ error: "Sessão inválida", code: "SESSION" }, { status: 403 });
+    }
+
     const ip = getClientIp(request);
     const ipHash = hashIp(ip);
+    const bodyExtra = body as PublishedPageRecord & {
+      workspaceId?: string;
+      deviceFingerprint?: string;
+    };
+    const deviceFingerprint =
+      typeof bodyExtra.deviceFingerprint === "string" ? bodyExtra.deviceFingerprint : undefined;
 
     const rate = checkRateLimit(`pub:${workspaceId}:${ipHash}`, 6, 60_000);
     if (!rate.allowed) {
@@ -31,6 +42,7 @@ export async function POST(request: Request) {
         workspaceId,
         action: "publish",
         ipHash,
+        deviceFingerprint,
       });
 
       if (!check.allowed) {
@@ -52,6 +64,7 @@ export async function POST(request: Request) {
         workspaceId,
         action: "publish",
         ipHash,
+        deviceFingerprint,
         planId,
       });
     }

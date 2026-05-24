@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generatePageFromPrompt } from "@/lib/ai/page-generator";
-import { checkPageQuota } from "@/lib/billing/page-quota-store";
+import { checkPageQuota, incrementPageQuota } from "@/lib/billing/page-quota-store";
+import { assertWorkspaceMatchesRequest } from "@/lib/auth/workspace-request";
 import { checkRateLimit, getClientIp, hashIp } from "@/lib/security/rate-limit";
 import type { PlanId } from "@/lib/store/types";
 
@@ -23,8 +24,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "workspaceId obrigatório" }, { status: 400 });
     }
 
+    if (!assertWorkspaceMatchesRequest(request.headers.get("cookie"), workspaceId)) {
+      return NextResponse.json({ error: "Sessão inválida", code: "SESSION" }, { status: 403 });
+    }
+
     const ip = getClientIp(request);
     const ipHash = hashIp(ip);
+    const deviceFingerprint =
+      typeof body.deviceFingerprint === "string" ? body.deviceFingerprint : undefined;
     const rate = checkRateLimit(`gen:${workspaceId}:${ipHash}`, 8, 60_000);
     if (!rate.allowed) {
       return NextResponse.json(
@@ -39,6 +46,7 @@ export async function POST(request: Request) {
       workspaceId,
       action: "generate",
       ipHash,
+      deviceFingerprint,
       clientPageCount: pageCount,
     });
 
@@ -55,6 +63,15 @@ export async function POST(request: Request) {
     await new Promise((r) => setTimeout(r, delay));
 
     const result = generatePageFromPrompt({ prompt, planId, userImages });
+
+    await incrementPageQuota({
+      workspaceId,
+      action: "generate",
+      ipHash,
+      deviceFingerprint,
+      planId,
+    });
+
     return NextResponse.json(result);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Erro ao gerar página";

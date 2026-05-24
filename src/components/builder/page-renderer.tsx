@@ -12,6 +12,8 @@ import {
   LogosBlock,
   NavbarBlock,
   PremiumHeroBlock,
+  CenteredPremiumHeroBlock,
+  MinimalPremiumHeroBlock,
   ProblemSolutionBlock,
 } from "@/components/builder/premium-blocks";
 import { Button } from "@/components/ui/button";
@@ -236,6 +238,16 @@ function Block({
 
   if (block.type === "navbar") {
     return <NavbarBlock c={c} accent={accent} colors={colors} />;
+  }
+
+  if (block.type === "hero" && c.layout === "minimal") {
+    return <MinimalPremiumHeroBlock c={c} accent={accent} colors={colors} />;
+  }
+
+  if (block.type === "hero" && c.layout === "centered") {
+    return (
+      <CenteredPremiumHeroBlock c={c} accent={accent} colors={colors} heroFallback={IMG.hero} />
+    );
   }
 
   if (block.type === "hero" && c.layout === "premium-split") {

@@ -46,6 +46,8 @@ export interface VisualPalette {
   mode: "dark" | "light";
 }
 
+export type HeroLayout = "premium-split" | "centered" | "minimal";
+
 export interface VisualStrategy {
   industry: Industry;
   industryLabel: string;
@@ -57,6 +59,7 @@ export interface VisualStrategy {
   visualStyle: VisualStyle;
   palette: VisualPalette;
   typography: "sans-modern" | "sans-display" | "serif-luxury";
+  heroLayout: HeroLayout;
   brandName: string;
   tagline: string;
   narrative: string;
@@ -179,22 +182,56 @@ function extractBrandName(prompt: string, industry: Industry): string {
   if (quoted) return quoted[1].trim().slice(0, 48);
 
   const named = prompt.match(
-    /(?:chamad[oa]|nome)\s+([A-ZÀ-Ú][\wÀ-ú\s]{2,24})/i
+    /(?:chamad[oa]|nome|marca)\s+([A-ZÀ-Ú][\wÀ-ú0-9\s&.-]{2,28})/i
   );
   if (named) return named[1].trim();
 
-  const forMatch = prompt.match(/(?:para|da|do)\s+(?:a\s+|o\s+)?([A-ZÀ-Ú][\wÀ-ú\s]{2,28})/);
+  const forMatch = prompt.match(/(?:para|da|do)\s+(?:a\s+|o\s+)?([A-ZÀ-Ú][\wÀ-ú0-9\s&.-]{2,28})/);
   if (forMatch) return forMatch[1].trim();
 
+  const productMatch = prompt.match(
+    /\b([A-Z][a-zA-Z0-9]{2,18}(?:\s[A-Z][a-zA-Z0-9]{1,12})?)\b/
+  );
+  if (productMatch && !/^(SaaS|Free|Trial|Premium|Lisboa|Porto)$/i.test(productMatch[1])) {
+    return productMatch[1].trim().slice(0, 48);
+  }
+
   const defaults: Partial<Record<Industry, string>> = {
-    saas: "Flowdesk",
+    saas: "Arcflow",
     barbearia: "Barber Studio",
     restaurante: "Sabor & Co",
     coaching: "Elevate",
     agency: "Scale Agency",
-    generic: "Nova",
+    generic: "Lumina",
   };
-  return defaults[industry] ?? "Nova";
+  return defaults[industry] ?? "Lumina";
+}
+
+function detectHeroLayout(
+  visualStyle: VisualStyle,
+  pageType: PageType,
+  prompt: string
+): HeroLayout {
+  const p = prompt.toLowerCase();
+  if (/minimal|clean|simples|apple|elegante/.test(p) || visualStyle === "apple-clean") {
+    return "minimal";
+  }
+  if (
+    /center|centrado|impacto|bold|funil|mentoria|curso|lançamento/.test(p) ||
+    pageType === "infoproduct" ||
+    pageType === "portfolio" ||
+    visualStyle === "luxury-serif"
+  ) {
+    return "centered";
+  }
+  if (pageType === "local" && /foto|galeria|ambiente/.test(p)) return "centered";
+  return "premium-split";
+}
+
+function promptHash(prompt: string): number {
+  let h = 0;
+  for (let i = 0; i < prompt.length; i++) h = (h * 31 + prompt.charCodeAt(i)) | 0;
+  return Math.abs(h);
 }
 
 function audienceFor(pageType: PageType, industry: Industry): string {
@@ -233,7 +270,7 @@ function painPoint(pageType: PageType, prompt: string): string {
   return "Soluções genéricas que não convertem e não transmitem credibilidade";
 }
 
-function sectionStack(pageType: PageType, planId: PlanId): string[] {
+function sectionStack(pageType: PageType, planId: PlanId, prompt = ""): string[] {
   const saas = [
     "navbar",
     "hero",
@@ -288,9 +325,36 @@ function sectionStack(pageType: PageType, planId: PlanId): string[] {
   let stack: string[];
   if (pageType === "local") stack = local;
   else if (pageType === "infoproduct" || pageType === "funnel") stack = infoproduct;
-  else stack = saas;
+  else if (pageType === "portfolio") {
+    stack = ["navbar", "hero", "gallery", "about", "testimonials", "form", "cta", "footer"];
+  } else if (pageType === "app") {
+    stack = [
+      "navbar",
+      "hero",
+      "social-proof",
+      "bento",
+      "testimonials",
+      "pricing",
+      "faq",
+      "form",
+      "cta",
+      "footer",
+    ];
+  } else stack = saas;
 
   const tier = getGenerationTier(planId);
+
+  const p = prompt;
+  if (/minimal|landing curta|simples|one page/.test(p.toLowerCase())) {
+    stack = stack.filter((s) => !["gallery", "logos", "guarantee"].includes(s));
+  }
+  if (pageType === "saas" && stack.includes("bento") && stack.includes("features")) {
+    const useBento = promptHash(p) % 2 === 0;
+    stack = stack.filter((s) => (useBento ? s !== "features" : s !== "bento"));
+  }
+  if (pageType === "local") {
+    stack = stack.filter((s) => s !== "features");
+  }
 
   if (tier.fullQuality) return stack;
 
@@ -346,7 +410,8 @@ export function analyzePrompt(prompt: string, planId: PlanId = "free"): VisualSt
     brandName,
     tagline: taglines[emotion],
     narrative: `Página ${pageType} para ${audienceFor(pageType, industry)} — estilo ${visualStyle}, emoção ${emotion}`,
-    sections: sectionStack(pageType, planId),
+    heroLayout: detectHeroLayout(visualStyle, pageType, prompt),
+    sections: sectionStack(pageType, planId, prompt),
     isPremium: getGenerationTier(planId).fullQuality,
   };
 }

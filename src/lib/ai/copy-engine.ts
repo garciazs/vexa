@@ -231,11 +231,422 @@ function aiSupportCopy(name: string, strategy: VisualStrategy): PageCopy {
   };
 }
 
+function isFintech(prompt: string) {
+  return /fintech|pagamento|payment|pix|cartão|cartao|bank|banking|crédito|credito/.test(
+    prompt.toLowerCase()
+  );
+}
+
+function isMentoria(prompt: string) {
+  return /mentoria|curso|masterclass|high.?ticket|coaching|formação|formacao|webinar/.test(
+    prompt.toLowerCase()
+  );
+}
+
+function isAnalytics(prompt: string) {
+  return /analytics|dashboard|métricas|metricas|dados|data|bi\b|relatório|relatorio/.test(
+    prompt.toLowerCase()
+  );
+}
+
+function logosForStyle(style: VisualStrategy["visualStyle"]): PageCopy["logos"] {
+  const sets: Record<VisualStrategy["visualStyle"], PageCopy["logos"]> = {
+    "linear-dark": {
+      headline: "Equipas que constroem no próximo nível",
+      logo1: "Linear",
+      logo2: "Vercel",
+      logo3: "Raycast",
+      logo4: "Notion",
+      logo5: "Figma",
+    },
+    "stripe-minimal": {
+      headline: "Confiado por marcas que escalam pagamentos",
+      logo1: "Stripe",
+      logo2: "Shopify",
+      logo3: "Amazon",
+      logo4: "Uber",
+      logo5: "Slack",
+    },
+    "neon-ai": {
+      headline: "IA em produção nas melhores equipas",
+      logo1: "OpenAI",
+      logo2: "Anthropic",
+      logo3: "Hugging Face",
+      logo4: "Scale AI",
+      logo5: "Cohere",
+    },
+    "apple-clean": {
+      headline: "Design e performance sem compromisso",
+      logo1: "Apple",
+      logo2: "Airbnb",
+      logo3: "Disney",
+      logo4: "Nike",
+      logo5: "BMW",
+    },
+    "luxury-serif": {
+      headline: "Marcas que exigem excelência",
+      logo1: "Vogue",
+      logo2: "Rolex",
+      logo3: "Four Seasons",
+      logo4: "Bentley",
+      logo5: "Cartier",
+    },
+    "vibrant-marketing": {
+      headline: "Crescimento acelerado comprovado",
+      logo1: "HubSpot",
+      logo2: "Semrush",
+      logo3: "ActiveCampaign",
+      logo4: "Klaviyo",
+      logo5: "Hotjar",
+    },
+    "warm-local": {
+      headline: "Recomendado pela comunidade local",
+      logo1: "Google 4.9★",
+      logo2: "500+ clientes",
+      logo3: "Desde 2018",
+      logo4: "Agendamento",
+      logo5: "Premium",
+    },
+  };
+  return sets[style];
+}
+
+function mentoriaCopy(name: string, strategy: VisualStrategy, prompt: string): PageCopy {
+  const priceMatch = prompt.match(/€\s?(\d[\d.,]*)/);
+  const price = priceMatch ? `€${priceMatch[1]}` : "€997";
+  const hook = extractPowerPhrase(prompt, "o método que transforma conhecimento em receita");
+  return {
+    navbar: { brand: name, links: "Programa|Resultados|FAQ|Inscrição", cta: "Garantir vaga" },
+    hero: {
+      badge: "Vagas limitadas · turma exclusiva",
+      headline: hook,
+      subtitle: `${strategy.valueProposition}. Sem teoria vazia — só o que move a agulha.`,
+      cta: "Quero a minha vaga",
+      ctaSecondary: "Ver resultados",
+    },
+    logos: logosForStyle("vibrant-marketing"),
+    problemSolution: {
+      headline: "Chega de consumir conteúdo. Hora de executar.",
+      problem: strategy.painPoint,
+      solution: `${name} entrega roteiro, accountability e templates prontos para faturar.`,
+      beforeLabel: "Antes",
+      afterLabel: "Depois do programa",
+      before1: "Sobrecarga de informação",
+      before2: "Zero clareza do próximo passo",
+      before3: "Receita instável",
+      after1: "Plano semanal claro",
+      after2: "Oferta validada",
+      after3: "Pipeline previsível",
+    },
+    bento: {
+      headline: "O que está incluído",
+      subtitle: "Tudo para ir de ideia a faturação em semanas.",
+      cell1title: "Módulos ao vivo",
+      cell1desc: "Sessões semanais com hot-seat e feedback real.",
+      cell2title: "Templates premium",
+      cell2desc: "Páginas, emails e scripts que já converteram.",
+      cell3title: "Comunidade privada",
+      cell3desc: "Networking com quem está no campo.",
+      cell4title: "Garantia 7 dias",
+      cell4desc: "Risco zero para começar.",
+    },
+    features: {
+      headline: "Para quem está pronto a investir em si",
+      subtitle: "Não é para curiosos — é para executores.",
+      feature1title: "Oferta high-ticket",
+      feature1desc: "Estrutura de preço e posicionamento.",
+      feature2title: "Funil validado",
+      feature2desc: "Da lead ao fecho sem adivinhar.",
+      feature3title: "Suporte direto",
+      feature3desc: "Respostas em 24h nos dias úteis.",
+    },
+    socialProof: {
+      headline: "Resultados de alunos",
+      stat1: "€2.4M+",
+      stat1label: "Faturado pelos alunos",
+      stat2: "340+",
+      stat2label: "Casos documentados",
+      stat3: "4.9★",
+      stat3label: "Avaliação média",
+    },
+    testimonials: {
+      headline: "Transformações reais",
+      quote1: "Fechei o meu primeiro high-ticket em 11 dias após o módulo 2.",
+      author1: "Beatriz Lima",
+      role1: "Consultora",
+      quote2: "Deixei de vender horas — agora vendo transformação.",
+      author2: "Miguel Santos",
+      role2: "Coach executivo",
+      quote3: "ROI do programa no primeiro mês. Sem exagero.",
+      author3: "Diana Rocha",
+      role3: "Mentora de negócios",
+    },
+    pricing: {
+      headline: "Investimento único",
+      subtitle: "Parcelamento disponível · vagas limitadas",
+      price,
+      period: "pagamento único · acesso 12 meses",
+      feature1: "Todos os módulos + atualizações",
+      feature2: "Comunidade vitalícia",
+      feature3: "Templates e scripts",
+      feature4: "Garantia 7 dias",
+      button: "Garantir vaga agora",
+    },
+    guarantee: {
+      headline: "Garantia incondicional 7 dias",
+      text: "Entre, assista às aulas, use os templates. Se não sentir valor, devolvemos 100%.",
+    },
+    faq: {
+      headline: "Perguntas antes de entrar",
+      q1: "Serve para iniciantes?",
+      a1: "Sim — desde que execute o plano semanal.",
+      q2: "Há suporte?",
+      a2: "Sim — comunidade + respostas da equipa.",
+      q3: "Posso parcelar?",
+      a3: "Sim — até 12x no cartão.",
+    },
+    form: {
+      headline: "Últimas vagas desta turma",
+      subtitle: "Preencha para receber o link de pagamento.",
+      button: "Reservar vaga",
+    },
+    cta: {
+      headline: "Daqui a um ano vai desejar ter começado hoje",
+      subtitle: "As vagas fecham quando a turma enche.",
+      button: "Entrar agora",
+    },
+    footer: {
+      tagline: `${name} — ${strategy.tagline}`,
+      col1: "Programa|Resultados|FAQ",
+      col2: "Sobre|Contacto",
+      col3: "Termos|Privacidade",
+    },
+  };
+}
+
+function analyticsCopy(name: string, strategy: VisualStrategy, prompt: string): PageCopy {
+  const hook = extractPowerPhrase(prompt, "decisões em tempo real, não relatórios mortos");
+  return {
+    navbar: { brand: name, links: "Produto|Integrações|Pricing|Docs", cta: "Ver demo" },
+    hero: {
+      badge: "Analytics que equipas adoram usar",
+      headline: `${name} — ${hook}`,
+      subtitle: strategy.valueProposition,
+      cta: "Começar trial",
+      ctaSecondary: "Explorar dashboards",
+    },
+    logos: logosForStyle("linear-dark"),
+    problemSolution: {
+      headline: "Dados espalhados matam velocidade",
+      problem: strategy.painPoint,
+      solution: `${name} centraliza métricas, funis e cohorts — sem SQL para o dia a dia.`,
+      beforeLabel: "Sem visibilidade",
+      afterLabel: `Com ${name}`,
+      before1: "5 exports Excel por semana",
+      before2: "Reuniões para adivinhar",
+      before3: "KPIs desatualizados",
+      after1: "Um dashboard vivo",
+      after2: "Alertas proativos",
+      after3: "Decisões em minutos",
+    },
+    bento: {
+      headline: "Inteligência operacional",
+      subtitle: "Do evento ao insight — sem fricção.",
+      cell1title: "Funis visuais",
+      cell1desc: "Onde perde conversão — claro à primeira vista.",
+      cell2title: "Cohorts & retenção",
+      cell2desc: "Saiba quem volta e porquê.",
+      cell3title: "Alertas smart",
+      cell3desc: "Slack/email quando algo foge ao normal.",
+      cell4title: "API & warehouse",
+      cell4desc: "Export para BigQuery, Snowflake, Redshift.",
+    },
+    features: {
+      headline: "Feito para product & growth",
+      subtitle: "Self-serve para equipas, controlo para admins.",
+      feature1title: "Integração 1-clique",
+      feature1desc: "Stripe, GA4, HubSpot, Segment.",
+      feature2title: "SQL opcional",
+      feature2desc: "Power users têm liberdade total.",
+      feature3title: "Permissões granulares",
+      feature3desc: "Cada stakeholder vê o que importa.",
+    },
+    socialProof: {
+      headline: "Impacto medido",
+      stat1: "38%",
+      stat1label: "Mais conversões médias",
+      stat2: "12h",
+      stat2label: "Poupadas / semana",
+      stat3: "500+",
+      stat3label: "Dashboards activos",
+    },
+    testimonials: {
+      headline: "Growth teams a confiar",
+      quote1: "Finalmente um analytics que product adopta sem formação.",
+      author1: "Luís Ferreira",
+      role1: "Head of Product",
+      quote2: "Substituímos 3 tools. ROI em 6 semanas.",
+      author2: "Catarina Nunes",
+      role2: "Growth Lead",
+      quote3: "Parece Linear — mas para métricas de negócio.",
+      author3: "André Costa",
+      role3: "Founder",
+    },
+    pricing: {
+      headline: "Planos transparentes",
+      subtitle: "Trial 14 dias · sem cartão",
+      price: "€59",
+      period: "/mês · até 100k eventos",
+      feature1: "Dashboards ilimitados",
+      feature2: "Integrações nativas",
+      feature3: "Suporte chat",
+      feature4: "Export API",
+      button: "Iniciar trial",
+    },
+    guarantee: {
+      headline: "Trial sem risco",
+      text: "14 dias completos. Cancele com um clique.",
+    },
+    faq: {
+      headline: "FAQ",
+      q1: "Preciso de data engineer?",
+      a1: "Não para 90% dos casos de uso.",
+      q2: "GDPR?",
+      a2: "Sim — EU hosting disponível.",
+      q3: "Tempo de setup?",
+      a3: "Média de 20 minutos.",
+    },
+    form: { headline: "Peça uma demo", subtitle: "Walkthrough personalizado.", button: "Agendar" },
+    cta: {
+      headline: "Pare de pilotar às cegas",
+      subtitle: "Os seus dados já sabem a resposta — liberte-os.",
+      button: "Começar trial",
+    },
+    footer: {
+      tagline: `${name} — analytics para equipas exigentes.`,
+      col1: "Produto|Integrações|Changelog",
+      col2: "Empresa|Blog",
+      col3: "Privacidade|Termos",
+    },
+  };
+}
+
+function fintechCopy(name: string, strategy: VisualStrategy, prompt: string): PageCopy {
+  const hook = extractPowerPhrase(prompt, "pagamentos que escalam sem fricção");
+  return {
+    navbar: { brand: name, links: "Produto|Segurança|Preços|API", cta: "Abrir conta" },
+    hero: {
+      badge: "Infraestrutura financeira moderna",
+      headline: `${name} — ${hook}`,
+      subtitle: `${strategy.valueProposition}. Conformidade, velocidade e UX de classe mundial.`,
+      cta: "Começar grátis",
+      ctaSecondary: "Ver documentação",
+    },
+    logos: logosForStyle("stripe-minimal"),
+    problemSolution: {
+      headline: "Pagamentos não podem ser o gargalo do seu crescimento",
+      problem: strategy.painPoint,
+      solution: `${name} unifica cobrança, reconciliação e reporting — tudo num só painel.`,
+      beforeLabel: "Stack fragmentada",
+      afterLabel: `Com ${name}`,
+      before1: "Integrações frágeis e manuais",
+      before2: "Reconciliação que consome dias",
+      before3: "Falhas sem visibilidade",
+      after1: "API única, webhooks fiáveis",
+      after2: "Reconciliação automática",
+      after3: "Monitorização em tempo real",
+    },
+    bento: {
+      headline: "Infra feita para volume e confiança",
+      subtitle: "Do primeiro euro ao milhão — sem reescrever integrações.",
+      cell1title: "Checkout otimizado",
+      cell1desc: "Conversão máxima com 3D Secure e métodos locais.",
+      cell2title: "Payouts instantâneos",
+      cell2desc: "Liquidez para o seu negócio no timing certo.",
+      cell3title: "Anti-fraude ML",
+      cell3desc: "Bloqueio inteligente sem matar conversão.",
+      cell4title: "Relatórios CFO-ready",
+      cell4desc: "Export contabilístico e dashboards executivos.",
+    },
+    features: {
+      headline: "Compliance sem sacrificar velocidade",
+      subtitle: "PSD2, PCI e auditoria — tratados por nós.",
+      feature1title: "KYC/KYB integrado",
+      feature1desc: "Onboarding de merchants em minutos.",
+      feature2title: "Multi-moeda",
+      feature2desc: "EUR, USD, GBP — taxas transparentes.",
+      feature3title: "SLA 99.99%",
+      feature3desc: "Uptime com SLA financeiro.",
+    },
+    socialProof: {
+      headline: "Volume processado com confiança",
+      stat1: "€240M+",
+      stat1label: "Processados / mês",
+      stat2: "99.99%",
+      stat2label: "Uptime",
+      stat3: "<200ms",
+      stat3label: "Latência média API",
+    },
+    testimonials: {
+      headline: "Fintechs que já confiam",
+      quote1: "Reduzimos chargebacks 34% no primeiro trimestre.",
+      author1: "Inês Marques",
+      role1: "CFO · Neobank",
+      quote2: "Integração em 2 dias. Antes demorava meses.",
+      author2: "Rui Pacheco",
+      role2: "CTO · Marketplace",
+      quote3: "Finalmente pagamentos que não acordam a equipa às 3h.",
+      author3: "Carla Dias",
+      role3: "Head of Payments",
+    },
+    pricing: {
+      headline: "Preços que escalam com o seu GMV",
+      subtitle: "Sem taxas escondidas.",
+      price: "1.4%",
+      period: "+ €0.25 por transação · volume negociável",
+      feature1: "Primeiros €10k sem taxa fixa",
+      feature2: "Dashboard completo",
+      feature3: "Suporte dedicado",
+      feature4: "Sandbox ilimitado",
+      button: "Criar conta sandbox",
+    },
+    guarantee: {
+      headline: "Segurança em primeiro lugar",
+      text: "PCI DSS Level 1, encriptação end-to-end e auditorias independentes contínuas.",
+    },
+    faq: {
+      headline: "FAQ",
+      q1: "Quanto tempo para ir live?",
+      a1: "Média de 48h com documentação completa.",
+      q2: "Suportam PIX e MB Way?",
+      a2: "Sim — métodos locais e internacionais.",
+      q3: "Há sandbox?",
+      a3: "Sim, gratuito e ilimitado para testes.",
+    },
+    form: { headline: "Fale com vendas", subtitle: "Demo técnica em 30 minutos.", button: "Agendar demo" },
+    cta: {
+      headline: "O seu próximo milhão começa com infra sólida",
+      subtitle: "Junte-se às fintechs que não aceitam downtime.",
+      button: "Começar agora",
+    },
+    footer: {
+      tagline: `${name} — infraestrutura de pagamentos para o futuro.`,
+      col1: "Produto|API|Status|Segurança",
+      col2: "Empresa|Blog|Carreiras",
+      col3: "Legal|Privacidade|Termos",
+    },
+  };
+}
+
 export function generateCopy(strategy: VisualStrategy, prompt: string): PageCopy {
   const { brandName } = strategy;
   const name = brandName;
 
   if (isAiSupport(prompt)) return aiSupportCopy(name, strategy);
+  if (isFintech(prompt) && strategy.pageType !== "local") return fintechCopy(name, strategy, prompt);
+  if (isMentoria(prompt) || strategy.pageType === "infoproduct")
+    return mentoriaCopy(name, strategy, prompt);
+  if (isAnalytics(prompt) && strategy.pageType === "saas") return analyticsCopy(name, strategy, prompt);
 
   if (isLocalBusiness(strategy.industry)) {
     const profile = getIndustryProfile(strategy.industry);
@@ -369,23 +780,18 @@ export function generateCopy(strategy: VisualStrategy, prompt: string): PageCopy
 
   // Default SaaS / tech premium copy
   const heroHook = extractPowerPhrase(prompt, strategy.valueProposition.split("—")[0].trim());
+  const styleLogos = logosForStyle(strategy.visualStyle);
   return {
     navbar: { brand: name, links: "Produto|Clientes|Preços|Docs", cta: "Começar grátis" },
     hero: {
       badge: strategy.tagline,
-      headline: `${name} — ${heroHook}`,
+      headline:
+        strategy.heroLayout === "centered" ? heroHook : `${name} — ${heroHook}`,
       subtitle: strategy.valueProposition,
       cta: "Começar grátis",
       ctaSecondary: "Ver como funciona",
     },
-    logos: {
-      headline: "Confiado por equipas ambiciosas",
-      logo1: "Vercel",
-      logo2: "Linear",
-      logo3: "Stripe",
-      logo4: "Notion",
-      logo5: "Framer",
-    },
+    logos: styleLogos,
     problemSolution: {
       headline: "O problema é claro. A solução também.",
       problem: strategy.painPoint,

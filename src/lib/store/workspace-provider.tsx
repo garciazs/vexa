@@ -23,7 +23,9 @@ import {
   runAutomationsForTrigger,
 } from "@/lib/automation/engine";
 import { syncSessionCookie } from "@/lib/auth/session-cookie";
+import { UpgradeModalProvider } from "@/components/billing/upgrade-modal-provider";
 import { checkServerQuota } from "@/lib/billing/quota-client";
+import { getDeviceFingerprint } from "@/lib/security/device-fingerprint";
 import { getEffectivePageCount, getPublishedTotal } from "@/lib/billing/page-count";
 import { createDefaultFlow, normalizeChatbot } from "@/lib/chatbot/defaults";
 import type {
@@ -158,7 +160,9 @@ interface WorkspaceContextValue {
     patch: Partial<Pick<LandingPageRecord, "name" | "slug" | "blocks" | "status">>
   ) => void;
   deleteLandingPage: (id: string) => void;
-  publishLandingPage: (id: string) => Promise<{ publicUrl: string } | null>;
+  publishLandingPage: (
+    id: string
+  ) => Promise<{ ok: true; publicUrl: string } | { ok: false; message: string; code?: string }>;
   purchaseDomain: (name: string, price: number, mode?: "register" | "connect") => void;
   connectExistingDomain: (name: string) => void;
   verifyDomainDns: (domainId: string) => void;
@@ -213,9 +217,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const loaded = load();
     setData(loaded);
-    syncSessionCookie(!!loaded);
+    syncSessionCookie(loaded?.workspace.id ?? null);
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (data?.workspace.id) syncSessionCookie(data.workspace.id);
+  }, [data?.workspace.id]);
 
   useEffect(() => {
     if (!ready || !data?.workspace.id) return;
@@ -320,7 +328,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const stored = load();
       if (stored && stored.user.email === email.toLowerCase()) {
         setData(stored);
-        syncSessionCookie(true);
+        syncSessionCookie(stored.workspace.id);
         return true;
       }
       return false;
@@ -332,14 +340,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     (input: Parameters<typeof createWorkspace>[0]) => {
       const ws = createWorkspace(input);
       persist(ws);
-      syncSessionCookie(true);
+      syncSessionCookie(ws.workspace.id);
     },
     [persist]
   );
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
-    syncSessionCookie(false);
+    syncSessionCookie(null);
     setData(null);
   }, []);
 
@@ -585,9 +593,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const publishLandingPage = useCallback(
     async (id: string) => {
-      if (!data) return null;
+      if (!data) return { ok: false as const, message: "Sessão inválida." };
       const page = data.landingPages.find((p) => p.id === id);
-      if (!page) return null;
+      if (!page) return { ok: false as const, message: "Página não encontrada." };
 
       const wasPublished = page.status === "published";
       const plan = normalizePlanId(data.workspace.plan);
@@ -598,7 +606,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           action: "publish",
           planId: plan,
         });
-        if (!quota.allowed) return null;
+        if (!quota.allowed) {
+          return {
+            ok: false as const,
+            message: quota.error ?? "Limite de publicações atingido no plano Free.",
+            code: quota.code,
+          };
+        }
       }
 
       const linkedDomain = data.domains.find((d) => d.linkedPageId === id);
@@ -620,9 +634,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             customDomain: linkedDomain?.dnsVerified ? linkedDomain.name : undefined,
             workspaceId: data.workspace.id,
             publishedAt,
+            deviceFingerprint: getDeviceFingerprint(),
           }),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return {
+            ok: false as const,
+            message: (err as { error?: string }).error ?? "Não foi possível publicar.",
+            code: (err as { code?: string }).code,
+          };
+        }
         if (linkedDomain?.dnsVerified) {
           await fetch("/api/domains/link", {
             method: "POST",
@@ -635,7 +657,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           });
         }
       } catch {
-        return null;
+        return { ok: false as const, message: "Erro de rede ao publicar." };
       }
 
       const onboardingSteps = data.onboardingSteps.includes("publish")
@@ -665,7 +687,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       });
 
       const origin = typeof window !== "undefined" ? window.location.origin : "";
-      return { publicUrl: `${origin}/p/${page.slug}` };
+      return { ok: true as const, publicUrl: `${origin}/p/${page.slug}` };
     },
     [data, persist]
   );
@@ -1108,7 +1130,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     pageLimitReason,
   };
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+  return (
+    <WorkspaceContext.Provider value={value}>
+      <UpgradeModalProvider>{children}</UpgradeModalProvider>
+    </WorkspaceContext.Provider>
+  );
 }
 
 function completeOnboardingStepInternal(

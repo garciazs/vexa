@@ -1,6 +1,7 @@
 import type { PageBlock } from "@/lib/store/types";
 import type { PlanId } from "@/lib/store/types";
 import type { TemplateTheme } from "@/lib/templates/catalog";
+import type { VisualStyle } from "@/lib/ai/visual-strategy";
 import { generateCopy } from "@/lib/ai/copy-engine";
 import { buildPremiumBlocks, SECTION_PLAN_LIMITS } from "@/lib/ai/section-architect";
 import { getGenerationTier } from "@/lib/ai/generation-tiers";
@@ -43,9 +44,9 @@ function slugify(text: string) {
     .slice(0, 40);
 }
 
-function themeFromStrategy(mode: "dark" | "light", pageType: string): TemplateTheme {
-  if (mode === "light") return "clean";
-  if (pageType === "local") return "launch";
+function themeFromVisualStyle(style: VisualStyle, mode: "dark" | "light", pageType: string): TemplateTheme {
+  if (style === "apple-clean" || style === "warm-local" || mode === "light") return "clean";
+  if (style === "luxury-serif" || style === "vibrant-marketing" || pageType === "local") return "launch";
   return "saas";
 }
 
@@ -63,7 +64,7 @@ export function generatePageFromPrompt(input: GeneratePageInput | string): AIGen
   const strategy = analyzePrompt(trimmed, planId);
   const copy = generateCopy(strategy, trimmed);
   const blocks = buildPremiumBlocks(strategy, copy, planId, userImages);
-  const theme = themeFromStrategy(strategy.palette.mode, strategy.pageType);
+  const theme = themeFromVisualStyle(strategy.visualStyle, strategy.palette.mode, strategy.pageType);
   const name = strategy.brandName;
   const slug = slugify(name) || "site";
 

@@ -26,6 +26,7 @@ import {
 } from "@/lib/ai/page-generator";
 import { FreeUpgradeWall } from "@/components/dashboard/free-upgrade-wall";
 import { getEffectivePageCount } from "@/lib/billing/page-count";
+import { getDeviceFingerprint } from "@/lib/security/device-fingerprint";
 import { normalizePlanId } from "@/lib/templates/catalog";
 import { useWorkspace } from "@/lib/store/workspace-provider";
 import type { PlanId } from "@/lib/store/types";
@@ -132,6 +133,7 @@ export function AIBuilderView() {
             workspaceId: data?.workspace.id,
             pageCount: effectivePageCount,
             userImages: images,
+            deviceFingerprint: getDeviceFingerprint(),
           }),
         });
         const dataRes = await res.json();

@@ -17,12 +17,17 @@ export async function checkServerQuota(params: {
   planId?: PlanId;
   confirm?: boolean;
   clientPageCount?: number;
+  deviceFingerprint?: string;
 }): Promise<QuotaClientResult> {
   try {
+    const { getDeviceFingerprint } = await import("@/lib/security/device-fingerprint");
     const res = await fetch("/api/pages/quota", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        ...params,
+        deviceFingerprint: params.deviceFingerprint ?? getDeviceFingerprint(),
+      }),
     });
     const data = await res.json();
     if (!res.ok) {

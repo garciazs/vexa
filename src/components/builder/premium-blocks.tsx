@@ -180,6 +180,130 @@ export function PremiumHeroBlock({
   );
 }
 
+export function CenteredPremiumHeroBlock({
+  c,
+  accent,
+  colors,
+  heroFallback,
+}: {
+  c: C;
+  accent?: string;
+  colors?: CustomColors;
+  heroFallback: string;
+}) {
+  const bg = colors?.background ?? c.backgroundColor ?? "#08090A";
+  const isSerif = c.typography === "serif-luxury";
+
+  return (
+    <section className="relative overflow-hidden px-6 pb-28 pt-20 text-center md:pt-28" style={{ backgroundColor: bg }}>
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: `radial-gradient(ellipse 70% 50% at 50% 0%, ${accent ?? "#635BFF"}28, transparent 65%)`,
+        }}
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative mx-auto max-w-4xl"
+      >
+        {c.badge && (
+          <span
+            className="mb-6 inline-flex rounded-full border px-4 py-1.5 text-xs font-semibold"
+            style={{
+              borderColor: `${accent ?? "#635BFF"}55`,
+              backgroundColor: `${accent ?? "#635BFF"}18`,
+              color: accent ?? "#a78bfa",
+            }}
+          >
+            {c.badge}
+          </span>
+        )}
+        <h1
+          className={cn(
+            "text-4xl font-bold leading-[1.06] tracking-tight md:text-6xl lg:text-7xl",
+            isSerif && "font-serif"
+          )}
+        >
+          {c.headline}
+        </h1>
+        <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-400 md:text-xl">{c.subtitle}</p>
+        <div className="mt-10 flex flex-wrap justify-center gap-4">
+          <AccentButton size="xl" accent={accent} asChild>
+            <a href="#vexa-form">{c.cta}</a>
+          </AccentButton>
+          {c.ctaSecondary && (
+            <Button size="xl" variant="outline" className="border-white/20 bg-white/5" asChild>
+              <a href="#features">{c.ctaSecondary}</a>
+            </Button>
+          )}
+        </div>
+      </motion.div>
+      {c.imageUrl && (
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="relative mx-auto mt-16 max-w-5xl overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+        >
+          <div className="relative aspect-[21/9]">
+            <PageImage src={c.imageUrl || heroFallback} alt="" fill className="object-cover" sizes="1200px" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          </div>
+        </motion.div>
+      )}
+    </section>
+  );
+}
+
+export function MinimalPremiumHeroBlock({
+  c,
+  accent,
+  colors,
+}: {
+  c: C;
+  accent?: string;
+  colors?: CustomColors;
+}) {
+  const bg = colors?.background ?? c.backgroundColor ?? "#FBFBFD";
+  const text = colors?.text ?? c.textColor ?? "#1D1D1F";
+  const isLight = (c.colorMode ?? "dark") === "light";
+
+  return (
+    <section
+      className="px-6 pb-20 pt-24 md:pt-32"
+      style={{ backgroundColor: bg, color: text }}
+    >
+      <div className="mx-auto max-w-3xl">
+        {c.badge && (
+          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: accent }}>
+            {c.badge}
+          </p>
+        )}
+        <h1 className="text-4xl font-semibold leading-[1.12] tracking-tight md:text-5xl lg:text-6xl">
+          {c.headline}
+        </h1>
+        <p className="mt-6 text-lg leading-relaxed opacity-80">{c.subtitle}</p>
+        <div className="mt-10 flex flex-wrap gap-3">
+          <AccentButton size="lg" accent={accent} asChild>
+            <a href="#vexa-form">{c.cta}</a>
+          </AccentButton>
+          {c.ctaSecondary && (
+            <Button
+              size="lg"
+              variant="outline"
+              className={isLight ? "border-black/15" : "border-white/20"}
+              asChild
+            >
+              <a href="#features">{c.ctaSecondary}</a>
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function LogosBlock({ c }: { c: C }) {
   const logos = [1, 2, 3, 4, 5].map((i) => c[`logo${i}`]).filter(Boolean);
   return (

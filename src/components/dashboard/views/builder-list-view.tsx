@@ -10,6 +10,7 @@ import { PageLimitBanner } from "@/components/dashboard/page-limit-banner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useUpgradeModal } from "@/components/billing/upgrade-modal-provider";
 import { useWorkspace } from "@/lib/store/workspace-provider";
 import { normalizePlanId } from "@/lib/templates/catalog";
 import type { PlanId } from "@/lib/store/types";
@@ -23,7 +24,9 @@ const thumbnailStyles = [
 
 export function BuilderListView() {
   const router = useRouter();
-  const { data, createLandingPage, canCreateLandingPage, canUseAIGeneration } = useWorkspace();
+  const { data, createLandingPage, canCreateLandingPage, canUseAIGeneration, pageLimitReason } =
+    useWorkspace();
+  const { openUpgradeModal } = useUpgradeModal();
   const pages = data?.landingPages ?? [];
   const planId = normalizePlanId(data?.workspace.plan) as PlanId;
   const pageCount = pages.length;
@@ -43,7 +46,12 @@ export function BuilderListView() {
     try {
       const id = await createLandingPage();
       if (!id) {
-        alert("Limite de sites atingido no seu plano. Faça upgrade em Billing.");
+        openUpgradeModal({
+          description:
+            pageLimitReason ??
+            "Torne-se Premium para criar websites ilimitados e desbloquear IA avançada.",
+          existingPageId: firstPageId,
+        });
         return;
       }
       router.push(`/builder/${id}`);
@@ -110,11 +118,18 @@ export function BuilderListView() {
                   </p>
                 </div>
               </div>
-              <Button variant="green" asChild>
-                <Link href="/billing">
-                  <Crown className="h-4 w-4" />
-                  Assinar
-                </Link>
+              <Button
+                variant="green"
+                onClick={() =>
+                  openUpgradeModal({
+                    existingPageId: firstPageId,
+                    description:
+                      "Torne-se Premium para criar websites ilimitados, IA avançada e templates premium.",
+                  })
+                }
+              >
+                <Crown className="h-4 w-4" />
+                Assinar VEXA
               </Button>
             </CardContent>
           </Card>
