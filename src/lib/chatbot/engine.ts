@@ -4,15 +4,25 @@ import {
   avoidRepetition,
   detectIntent,
   estimateTypingDelay,
-  retrieveKnowledge,
   resolveContextTopic,
   resolveReferencedPlan,
   type ConversationContext,
   type ConversationTurn,
   type DetectedIntent,
 } from "@/lib/ai/conversation-brain";
-import { mergeKnowledge } from "@/lib/chatbot/knowledge-base";
-import { applyPersonality, getPersonality, type BotPersonalityId } from "@/lib/chatbot/personalities";
+import { buildSearchIndex } from "@/lib/chatbot/knowledge-base";
+import { applyPersonality, getPersonality } from "@/lib/chatbot/personalities";
+import {
+  buildAugmentedQuery,
+  findPlanInHistory,
+  indexFlowAsKnowledge,
+  INTENT_HANDLERS,
+  resolveFollowUpAnswer,
+  retrieveKnowledgeEnhanced,
+  suggestTopicsFromQuery,
+  synthesizeKnowledgeAnswer,
+  tryAnswerYesNo,
+} from "@/lib/chatbot/response-synthesizer";
 import type { BotFlowNode, ChatbotRecord } from "@/lib/store/types";
 import { DEFAULT_FALLBACK } from "@/lib/chatbot/defaults";
 
@@ -50,11 +60,13 @@ function matchFlowOption(node: BotFlowNode, userText: string): { label: string; 
   if (node.type !== "options" || !node.options?.length) return null;
   const n = normalizeInput(userText);
 
-  for (const opt of node.options) {
+  for (let i = 0; i < node.options.length; i++) {
+    const opt = node.options[i];
     const label = normalizeInput(opt.label.replace(/[^\w\s]/g, ""));
     if (n.includes(label) || label.split(" ").some((w) => w.length > 3 && n.includes(w))) {
       return opt;
     }
+    if (/^[1-3]$/.test(n) && String(i + 1) === n) return opt;
   }
   return null;
 }
@@ -66,31 +78,47 @@ function findNode(flows: BotFlowNode[], id?: string): BotFlowNode | undefined {
 
 function getPlanAnswer(planId: string, questionIntent: DetectedIntent): string {
   const plan = PLANS.find((p) => p.id === planId);
-  if (!plan) return "Não encontrei esse plano. Temos Free, Starter (€29), Growth (€79) e Scale (€199).";
+  if (!plan) return "Temos **Free**, **Starter** (€29), **Growth** (€79) e **Scale** (€199). Qual quer conhecer?";
 
   if (questionIntent === "pricing" || questionIntent === "follow_up") {
-    return `O plano **${plan.name}** custa **€${plan.price}/mês**. ${plan.description}. Quer saber o que inclui?`;
+    return `O plano **${plan.name}** custa **€${plan.price}/mês**. ${plan.description}. Inclui: ${plan.features.join(", ")}.`;
   }
-
-  if (questionIntent === "features") {
-    return `Sim — o **${plan.name}** inclui: ${plan.features.join(", ")}.`;
+  if (questionIntent === "features" || questionIntent === "compare") {
+    return `O **${plan.name}** inclui: ${plan.features.join(", ")}.`;
   }
-
-  return `**${plan.name}** (€${plan.price}/mês): ${plan.features.slice(0, 4).join(", ")}.`;
+  return `**${plan.name}** — €${plan.price}/mês: ${plan.features.slice(0, 5).join(", ")}.`;
 }
 
 function buildDomainSupportReply(text: string): string {
-  const urgent = /nao entra|não entra|nao abre|não abre|offline|fora do ar|mano/i.test(text);
+  const urgent = /nao entra|não entra|nao abre|não abre|offline|fora do ar|mano|nao funciona|não funciona/i.test(text);
   if (urgent) {
     return (
-      "Percebo a frustração — vamos resolver. Se o site não abre, verifique:\n\n" +
+      "Percebo — vamos resolver já. Checklist rápido:\n\n" +
       "1. **Publicou** a landing no Builder?\n" +
-      "2. O link `/p/seu-slug` abre no browser?\n" +
-      "3. Se usa **domínio próprio**, o DNS está apontado e verificado em Domínios?\n\n" +
-      "Se já fez isto e continua offline, digite **humano** que escalamos imediatamente."
+      "2. Testou o link `/p/seu-slug` directamente?\n" +
+      "3. Domínio próprio → DNS apontado e **verificado** em Domínios?\n" +
+      "4. Propagação DNS pode levar até 48h.\n\n" +
+      "Se nada disto resolver, digite **humano** — escalamos com prioridade."
     );
   }
-  return "Para domínio personalizado (Growth/Scale): compre/ligue o domínio, configure os registos DNS e verifique em Domínios. Posso detalhar cada passo.";
+  return "Domínio personalizado (Growth/Scale): ligue em Domínios → configure DNS → verifique. Quer o passo-a-passo detalhado?";
+}
+
+function searchAndAnswer(
+  userText: string,
+  history: ConversationTurn[],
+  context: ConversationContext,
+  knowledgeIndex: ReturnType<typeof buildSearchIndex>,
+  minScore = 1.2
+): string | null {
+  const augmented = buildAugmentedQuery(userText, history, context);
+  const hits = retrieveKnowledgeEnhanced(userText, knowledgeIndex, {
+    augmentedQuery: augmented,
+    minScore,
+    limit: 3,
+  });
+  if (hits.length === 0) return null;
+  return synthesizeKnowledgeAnswer(hits);
 }
 
 function buildSmartReply(
@@ -100,20 +128,35 @@ function buildSmartReply(
   state: ConversationState
 ): Omit<ChatbotReply, "typingDelayMs"> {
   const personality = getPersonality(bot.personality);
-  const knowledge = mergeKnowledge(bot.knowledgeBase, bot.useCustomKnowledgeOnly !== true);
-  const { intent, entities, sentiment } = detectIntent(userText, state.context);
   const flows = bot.flows ?? [];
+  const flowKnowledge = indexFlowAsKnowledge(flows);
+  const knowledgeIndex = buildSearchIndex(bot.knowledgeBase, flowKnowledge, bot.useCustomKnowledgeOnly !== true);
+  const { intent, entities, sentiment } = detectIntent(userText, state.context);
 
-  if (/humano|atendente|pessoa real|operador/i.test(userText)) {
+  if (/humano|atendente|pessoa real|operador|equipa/i.test(userText)) {
     return {
       text: applyPersonality(
-        "Vou transferir para a equipa agora. Tempo médio de resposta: até 5 minutos no horário comercial.",
+        "A transferir para a equipa agora. Tempo médio: até 5 minutos (horário comercial). Enquanto isso, posso ajudar em mais alguma coisa?",
         personality,
         { includeOpener: true }
       ),
       intent: "human",
       sentiment,
       escalateHuman: true,
+    };
+  }
+
+  const yesNo = tryAnswerYesNo(userText, state.context);
+  if (yesNo) {
+    return { text: applyPersonality(yesNo, personality), intent: "follow_up", sentiment };
+  }
+
+  const followUp = resolveFollowUpAnswer(userText, state.context, history, knowledgeIndex);
+  if (followUp) {
+    return {
+      text: applyPersonality(followUp, personality, { includeOpener: true }),
+      intent: "follow_up",
+      sentiment,
     };
   }
 
@@ -134,60 +177,68 @@ function buildSmartReply(
     }
   }
 
-  const referencedPlan = resolveReferencedPlan(userText, state.context, entities);
-  const topic = resolveContextTopic(intent, entities, state.context);
+  const referencedPlan =
+    resolveReferencedPlan(userText, state.context, entities, history) ?? findPlanInHistory(history);
 
-  if ((intent === "pricing" || intent === "follow_up") && referencedPlan) {
-    const answer = getPlanAnswer(referencedPlan, intent);
-    if (intent === "follow_up" && /tem|inclui|vem|possui|automa/i.test(userText.toLowerCase())) {
-      const plan = PLANS.find((p) => p.id === referencedPlan);
-      const hasAutomation = plan?.features.some((f) => /automa|chatbot|crm/i.test(f));
-      const featureAnswer = hasAutomation
-        ? `Sim! O plano **${plan?.name}** inclui automações e recursos avançados: ${plan?.features.filter((f) => /automa|chatbot|crm|ia/i.test(f)).join(", ")}.`
-        : getPlanAnswer(referencedPlan, "features");
-      return {
-        text: applyPersonality(featureAnswer, personality, { includeOpener: intent === "follow_up" }),
-        intent: "features",
-        sentiment,
-        suggestFollowUp: "Quer comparar com outro plano?",
-      };
-    }
+  if ((intent === "pricing" || intent === "follow_up" || intent === "features") && referencedPlan) {
+    const featureQ = /tem|inclui|vem|possui|automa|chatbot|crm|dominio|domínio|ia|site/i.test(userText.toLowerCase());
+    const answer = getPlanAnswer(referencedPlan, featureQ ? "features" : intent);
     return {
-      text: applyPersonality(answer, personality, { includeOpener: true }),
-      intent: "pricing",
+      text: applyPersonality(answer, personality, { includeOpener: intent === "follow_up" }),
+      intent: featureQ ? "features" : "pricing",
       sentiment,
-      suggestFollowUp: "Quer saber se inclui automações ou chatbots?",
+      suggestFollowUp: "Quer comparar com outro plano ou assinar?",
     };
   }
 
-  if (intent === "pricing") {
+  const handler = INTENT_HANDLERS[intent];
+  if (handler) {
+    const handled = handler(userText, state.context);
+    if (handled) {
+      return {
+        text: applyPersonality(handled, personality, { includeOpener: true }),
+        intent,
+        sentiment,
+      };
+    }
+  }
+
+  if (intent === "pricing" || intent === "compare") {
+    const compareHit = searchAndAnswer(userText, history, state.context, knowledgeIndex, 1);
+    if (compareHit) {
+      return { text: applyPersonality(compareHit, personality, { includeOpener: true }), intent, sentiment };
+    }
     return {
       text: applyPersonality(
-        "Temos **Free** (1 site grátis com IA), **Starter** €29/mês, **Growth** €79/mês e **Scale** €199/mês. Qual se encaixa melhor no seu negócio?",
+        "**Free** (1 site IA grátis) · **Starter** €29 · **Growth** €79 · **Scale** €199/mês. Qual encaixa no seu negócio?",
         personality,
         { includeOpener: true }
       ),
       intent,
       sentiment,
+      suggestFollowUp: "Posso comparar Growth vs Starter?",
     };
   }
 
-  if (intent === "domain" || intent === "support") {
-    const domainReply = buildDomainSupportReply(userText);
+  if (intent === "domain" || (intent === "support" && /site|dom|entra|abre|offline/i.test(userText))) {
     return {
-      text: applyPersonality(domainReply, personality, { includeOpener: sentiment === "negative" }),
+      text: applyPersonality(buildDomainSupportReply(userText), personality, {
+        includeOpener: sentiment === "negative" || sentiment === "urgent",
+      }),
       intent: intent === "domain" ? "domain" : "support",
       sentiment,
     };
   }
 
-  if (intent === "greeting" && !state.greeted) {
+  if (intent === "greeting") {
     return {
       text: applyPersonality(
-        bot.welcomeMessage ?? "Olá! Como posso ajudar hoje?",
+        state.greeted
+          ? "Olá de novo! Em que posso ajudar — preços, criar site, CRM ou suporte?"
+          : (bot.welcomeMessage ?? "Olá! Como posso ajudar hoje?"),
         personality
       ),
-      options: currentNode?.type === "options" ? currentNode.options : flows.find((f) => f.type === "options")?.options,
+      options: flows.find((f) => f.type === "options")?.options,
       intent,
       sentiment,
     };
@@ -195,7 +246,7 @@ function buildSmartReply(
 
   if (intent === "thanks") {
     return {
-      text: applyPersonality("De nada! Estou aqui se precisar de mais alguma coisa.", personality),
+      text: applyPersonality("De nada! Estou aqui 24/7 se precisar.", personality),
       intent,
       sentiment,
     };
@@ -204,7 +255,7 @@ function buildSmartReply(
   if (intent === "demo") {
     return {
       text: applyPersonality(
-        "Ótimo! Qual o melhor dia e horário para uma demo de 15 minutos? Responda com a sua disponibilidade.",
+        "Ótimo! Qual dia e horário funcionam para uma demo de 15 min? (ex: terça 15h)",
         personality,
         { includeOpener: true }
       ),
@@ -213,41 +264,55 @@ function buildSmartReply(
     };
   }
 
-  const retrieved = retrieveKnowledge(userText, knowledge, 2);
-  if (retrieved.length > 0 && retrieved[0].score >= 2) {
-    const best = retrieved[0].item;
-    let answer = best.content;
-    if (retrieved.length > 1 && retrieved[1].score >= retrieved[0].score * 0.7) {
-      answer += `\n\nTambém relevante: ${retrieved[1].item.title} — ${retrieved[1].item.content.slice(0, 120)}…`;
-    }
+  if (intent === "cancel") {
     return {
-      text: applyPersonality(answer, personality, { includeOpener: true }),
+      text: applyPersonality(
+        "Para cancelar: vá em **Planos** → **Gerir subscrição** (portal Stripe) → cancelar plano. O acesso mantém-se até fim do período pago. Precisa de ajuda com isso?",
+        personality,
+        { includeOpener: true }
+      ),
+      intent,
+      sentiment,
+    };
+  }
+
+  const ragAnswer = searchAndAnswer(userText, history, state.context, knowledgeIndex, 1);
+  if (ragAnswer) {
+    return {
+      text: applyPersonality(ragAnswer, personality, { includeOpener: intent === "unknown" }),
       intent: intent === "unknown" ? "features" : intent,
       sentiment,
     };
   }
 
   for (const node of flows) {
-    if (node.type !== "message" || !node.text) continue;
-    const nodeWords = node.text.toLowerCase().split(/\s+/).filter((w) => w.length > 4);
-    const userWords = userText.toLowerCase().split(/\s+/);
-    const overlap = nodeWords.filter((w) => userWords.some((u) => u.includes(w) || w.includes(u)));
-    if (overlap.length >= 2) {
-      return {
-        text: applyPersonality(node.text, personality),
-        intent,
-        sentiment,
-        nextNodeId: node.nextId ?? node.id,
-      };
+    if (!node.text) continue;
+    const overlap = searchAndAnswer(node.text + " " + userText, history, state.context, [
+      { id: node.id, title: "fluxo", content: node.text, keywords: [] },
+    ]);
+    if (overlap && node.text.length > 20) {
+      const userOverlap = userText.toLowerCase().split(/\s+/).filter((w) => w.length > 4);
+      const nodeWords = node.text.toLowerCase().split(/\s+/);
+      const matches = userOverlap.filter((w) => nodeWords.some((nw) => nw.includes(w) || w.includes(nw)));
+      if (matches.length >= 1) {
+        return {
+          text: applyPersonality(node.text, personality),
+          intent,
+          sentiment,
+          nextNodeId: node.nextId ?? node.id,
+        };
+      }
     }
   }
 
+  const suggestions = suggestTopicsFromQuery(userText);
   const fallback = bot.fallbackMessage ?? DEFAULT_FALLBACK;
   const optionsNode = flows.find((f) => f.type === "options");
+
   return {
     text: applyPersonality(
       avoidRepetition(
-        `${fallback}\n\nPosso ajudar com **preços**, **funcionalidades**, **publicar o site** ou **domínios**. Reformule ou escolha uma opção.`,
+        `${fallback}\n\nPosso ajudar com: **${suggestions.join("**, **")}**. Reformule a pergunta ou escolha abaixo.`,
         history
       ),
       personality
@@ -255,6 +320,7 @@ function buildSmartReply(
     options: optionsNode?.options,
     intent: "unknown",
     sentiment,
+    suggestFollowUp: `Experimente perguntar sobre ${suggestions[0]}.`,
   };
 }
 
@@ -267,24 +333,22 @@ export function resolveChatbotReply(
   const trimmed = userText.trim();
   if (!trimmed) {
     return {
-      reply: {
-        text: "Envie uma mensagem — estou pronto para ajudar.",
-        typingDelayMs: 300,
-      },
+      reply: { text: "Envie uma mensagem — estou pronto para ajudar.", typingDelayMs: 300 },
       newState: state,
     };
   }
 
   const raw = buildSmartReply(bot, trimmed, history, state);
   const { intent, entities } = detectIntent(trimmed, state.context);
-  const referencedPlan = resolveReferencedPlan(trimmed, state.context, entities);
+  const referencedPlan =
+    resolveReferencedPlan(trimmed, state.context, entities, history) ?? findPlanInHistory(history);
 
   const newContext: ConversationContext = {
     ...state.context,
     lastTopic: resolveContextTopic(intent, entities, state.context),
     lastMentionedPlan: referencedPlan ?? state.context.lastMentionedPlan,
     lastMentionedEntity: entities[0] ?? state.context.lastMentionedEntity,
-    lastBotQuestion: raw.suggestFollowUp ?? raw.text,
+    lastBotQuestion: raw.suggestFollowUp ?? raw.text.slice(0, 200),
   };
 
   const newState: ConversationState = {
@@ -295,13 +359,14 @@ export function resolveChatbotReply(
     greeted: state.greeted || intent === "greeting",
   };
 
-  const reply: ChatbotReply = {
-    ...raw,
-    typingDelayMs: estimateTypingDelay(raw.text),
-    sentiment: raw.sentiment ?? analyzeSentiment(trimmed),
+  return {
+    reply: {
+      ...raw,
+      typingDelayMs: estimateTypingDelay(raw.text),
+      sentiment: raw.sentiment ?? analyzeSentiment(trimmed),
+    },
+    newState,
   };
-
-  return { reply, newState };
 }
 
 export function getWelcomeReply(bot: ChatbotRecord): ChatbotReply {
@@ -311,7 +376,7 @@ export function getWelcomeReply(bot: ChatbotRecord): ChatbotReply {
   const optionsNode = flows.find((f) => f.type === "options");
 
   const text = applyPersonality(
-    bot.welcomeMessage ?? welcomeNode?.text ?? "Olá! Como posso ajudar?",
+    bot.welcomeMessage ?? welcomeNode?.text ?? "Olá! Sou o assistente — posso ajudar com preços, sites, CRM e suporte. O que precisa?",
     personality
   );
 

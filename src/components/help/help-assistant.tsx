@@ -9,24 +9,94 @@ import { Card } from "@/components/ui/card";
 import {
   detectIntent,
   estimateTypingDelay,
-  retrieveKnowledge,
+  resolveContextTopic,
   resolveReferencedPlan,
   type ConversationContext,
   type ConversationTurn,
 } from "@/lib/ai/conversation-brain";
 import { createDefaultKnowledge } from "@/lib/chatbot/knowledge-base";
 import { applyPersonality, getPersonality } from "@/lib/chatbot/personalities";
+import {
+  buildAugmentedQuery,
+  resolveFollowUpAnswer,
+  retrieveKnowledgeEnhanced,
+  synthesizeKnowledgeAnswer,
+  tryAnswerYesNo,
+} from "@/lib/chatbot/response-synthesizer";
 import { cn } from "@/lib/utils";
 
 type Message = { role: "user" | "assistant"; text: string; intent?: string };
 
 const HELP_KNOWLEDGE = createDefaultKnowledge();
 
+function getReply(
+  userText: string,
+  history: ConversationTurn[],
+  context: ConversationContext
+): { text: string; intent: string } {
+  const personality = getPersonality("support");
+  const { intent, entities, sentiment } = detectIntent(userText, context);
+
+  const yesNo = tryAnswerYesNo(userText, context);
+  if (yesNo) return { text: applyPersonality(yesNo, personality), intent: "follow_up" };
+
+  const followUp = resolveFollowUpAnswer(userText, context, history, HELP_KNOWLEDGE);
+  if (followUp) {
+    return { text: applyPersonality(followUp, personality, { includeOpener: true }), intent: "follow_up" };
+  }
+
+  const plan = resolveReferencedPlan(userText, context, entities, history);
+  if ((intent === "pricing" || intent === "follow_up") && plan) {
+    const item = HELP_KNOWLEDGE.find((k) => k.id === `plan-${plan}`);
+    if (item) {
+      return {
+        text: applyPersonality(item.content, personality, { includeOpener: true }),
+        intent: intent === "follow_up" ? "follow_up" : "pricing",
+      };
+    }
+  }
+
+  const augmented = buildAugmentedQuery(userText, history, context);
+  const hits = retrieveKnowledgeEnhanced(userText, HELP_KNOWLEDGE, {
+    augmentedQuery: augmented,
+    minScore: 1,
+    limit: 2,
+  });
+  if (hits.length > 0) {
+    return {
+      text: applyPersonality(synthesizeKnowledgeAnswer(hits), personality, { includeOpener: true }),
+      intent: intent === "unknown" ? "features" : intent,
+    };
+  }
+
+  if (intent === "greeting") {
+    return {
+      text: "Olá! Posso ajudar com landing pages, chatbots, automações, CRM, planos ou suporte técnico.",
+      intent,
+    };
+  }
+
+  if (sentiment === "negative" || sentiment === "urgent" || intent === "support") {
+    return {
+      text: applyPersonality(
+        "Entendo — vamos resolver. Descreva o problema (site, pagamento, login) ou digite **humano** para suporte directo.",
+        personality
+      ),
+      intent: "support",
+    };
+  }
+
+  return {
+    text: "Posso ajudar com: **publicar sites**, **preços**, **chatbots**, **automações**, **CRM** ou **domínios**. O que precisa?",
+    intent: "unknown",
+  };
+}
+
 export function HelpAssistant() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      text: "Olá! Sou o assistente VEXA — disponível 24 horas por dia. Como posso ajudar?",
+      text: "Olá! Sou o assistente VEXA — IA contextual, memória e respostas 24/7. Como posso ajudar?",
     },
   ]);
   const [history, setHistory] = useState<ConversationTurn[]>([
@@ -36,66 +106,6 @@ export function HelpAssistant() {
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  function getReply(userText: string): { text: string; intent: string } {
-    const personality = getPersonality("support");
-    const { intent, entities, sentiment } = detectIntent(userText, context);
-    const plan = resolveReferencedPlan(userText, context, entities);
-
-    if (intent === "pricing" && plan) {
-      const item = HELP_KNOWLEDGE.find((k) => k.id === `plan-${plan}`);
-      if (item) {
-        return {
-          text: applyPersonality(item.content, personality, { includeOpener: true }),
-          intent,
-        };
-      }
-    }
-
-    if (intent === "follow_up" && plan) {
-      const item = HELP_KNOWLEDGE.find((k) => k.id === `plan-${plan}`);
-      if (item && /tem|inclui|automa/i.test(userText.toLowerCase())) {
-        return {
-          text: applyPersonality(
-            `Sim — ${item.content.split(".")[1] ?? item.content}`,
-            personality,
-            { includeOpener: true }
-          ),
-          intent: "features",
-        };
-      }
-    }
-
-    const retrieved = retrieveKnowledge(userText, HELP_KNOWLEDGE, 1);
-    if (retrieved.length > 0) {
-      return {
-        text: applyPersonality(retrieved[0].item.content, personality, { includeOpener: true }),
-        intent: intent === "unknown" ? "features" : intent,
-      };
-    }
-
-    if (intent === "greeting") {
-      return {
-        text: "Olá! Posso ajudar com landing pages, chatbots, automações, CRM ou planos. O que precisa?",
-        intent,
-      };
-    }
-
-    if (sentiment === "negative" || intent === "support") {
-      return {
-        text: applyPersonality(
-          "Entendo — vamos resolver. Descreva o problema (site, domínio, pagamento) ou digite **humano** para suporte directo.",
-          personality
-        ),
-        intent: "support",
-      };
-    }
-
-    return {
-      text: "Posso ajudar com: publicar landing pages, conectar WhatsApp/Instagram, criar automações, usar o CRM ou planos. Reformule ou escolha um tópico abaixo.",
-      intent: "unknown",
-    };
-  }
 
   function send(text?: string) {
     const userText = (text ?? input).trim();
@@ -110,24 +120,26 @@ export function HelpAssistant() {
     const delay = estimateTypingDelay(userText);
 
     setTimeout(() => {
-      const reply = getReply(userText);
+      const reply = getReply(userText, [...history, { role: "user", text: userText }], context);
       setMessages((prev) => [...prev, { role: "assistant", text: reply.text, intent: reply.intent }]);
       setHistory((h) => [...h, { role: "assistant", text: reply.text }]);
       setContext((c) => ({
         ...c,
-        lastTopic: reply.intent,
-        lastMentionedPlan: entities[entities.length - 1] ?? c.lastMentionedPlan,
+        lastTopic: resolveContextTopic(intent, entities, c),
+        lastMentionedPlan:
+          resolveReferencedPlan(userText, c, entities, history) ?? c.lastMentionedPlan,
+        lastBotQuestion: reply.text.slice(0, 200),
       }));
       setTyping(false);
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, Math.max(400, delay));
+    }, Math.max(350, delay));
   }
 
   const quickTopics = [
-    "Quanto custa o plano Growth?",
-    "Como publicar uma landing?",
-    "Conectar WhatsApp",
-    "Criar automação",
+    "Quanto custa o Growth?",
+    "Ele tem automações?",
+    "Meu site não abre",
+    "Como criar chatbot?",
   ];
 
   return (
@@ -139,7 +151,7 @@ export function HelpAssistant() {
           </div>
           <div>
             <p className="font-semibold">Assistente VEXA</p>
-            <p className="text-xs text-muted-foreground">IA contextual · memória · 24/7</p>
+            <p className="text-xs text-muted-foreground">Responde a tudo · contexto · memória</p>
           </div>
         </div>
         <Badge variant="green" className="gap-1">
@@ -190,7 +202,7 @@ export function HelpAssistant() {
         </div>
         <div className="flex gap-2">
           <Input
-            placeholder="Escreva a sua dúvida..."
+            placeholder="Pergunte qualquer coisa…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
@@ -202,7 +214,7 @@ export function HelpAssistant() {
         </div>
         <p className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground">
           <Sparkles className="h-3 w-3" />
-          IA com contexto — entende &quot;ele tem automações?&quot; após falar de planos
+          Entende contexto — &quot;ele tem automações?&quot; após falar de planos
         </p>
       </div>
     </Card>

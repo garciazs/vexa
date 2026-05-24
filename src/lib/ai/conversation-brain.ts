@@ -14,11 +14,17 @@ export type DetectedIntent =
   | "support"
   | "domain"
   | "automation"
+  | "chatbot"
+  | "crm"
+  | "billing"
+  | "account"
   | "demo"
   | "human"
   | "thanks"
   | "follow_up"
   | "complaint"
+  | "compare"
+  | "cancel"
   | "unknown";
 
 export type Sentiment = "positive" | "neutral" | "negative" | "urgent";
@@ -60,21 +66,27 @@ const PLAN_ALIASES: Record<string, string> = {
 };
 
 const INTENT_PATTERNS: { intent: DetectedIntent; patterns: RegExp[] }[] = [
-  { intent: "human", patterns: [/humano|atendente|pessoa|operador|falar com algu/i] },
-  { intent: "greeting", patterns: [/^(oi|olá|ola|hey|bom dia|boa tarde|boa noite|e aí|eai)\b/i] },
-  { intent: "thanks", patterns: [/obrigad|valeu|agrade|thanks|thank you/i] },
-  { intent: "pricing", patterns: [/preço|preco|quanto cust|custo|valor|€|euro|plano|assin|mensal/i] },
-  { intent: "features", patterns: [/funcional|recurso|inclui|tem automa|chatbot|crm|landing|secç|secao/i] },
-  { intent: "domain", patterns: [/domínio|dominio|dns|site n[aã]o entra|n[aã]o abre|offline|fora do ar|hosped/i] },
-  { intent: "support", patterns: [/problema|erro|bug|ajuda|suporte|n[aã]o funciona|travou|quebr/i] },
-  { intent: "automation", patterns: [/automa|workflow|mensagem autom|whatsapp|instagram/i] },
-  { intent: "demo", patterns: [/demo|agendar|reuni[aã]o|call|conversar|marcar/i] },
-  { intent: "complaint", patterns: [/p[eé]ssimo|horr[ií]vel|demora|frustrad|irritad|reclama/i] },
+  { intent: "human", patterns: [/humano|atendente|pessoa real|operador|falar com algu|equipa humana/i] },
+  { intent: "greeting", patterns: [/^(oi|olá|ola|hey|bom dia|boa tarde|boa noite|e aí|eai|salve|opa)\b/i] },
+  { intent: "thanks", patterns: [/obrigad|valeu|agrade|thanks|thank you|brigad/i] },
+  { intent: "cancel", patterns: [/cancel|desist|reembols|devolv|parar assin|unsubscribe/i] },
+  { intent: "compare", patterns: [/compar|diferen|qual plano|melhor plano|recomend|escolher plano/i] },
+  { intent: "pricing", patterns: [/preço|preco|quanto cust|custo|valor|€|euro|plano|assin|mensal|barato|caro/i] },
+  { intent: "billing", patterns: [/pagamento|cart[aã]o|stripe|fatura|cobran|billing|pagar|subscri/i] },
+  { intent: "account", patterns: [/login|entrar|cadastr|regist|conta|senha|password|email esqueci/i] },
+  { intent: "crm", patterns: [/\bcrm\b|lead|pipeline|kanban|qualific|cliente|venda/i] },
+  { intent: "chatbot", patterns: [/chatbot|\bbot\b|assistente virtual|widget|simulador/i] },
+  { intent: "features", patterns: [/funcional|recurso|inclui|tem automa|landing|secç|secao|template|analytics|o que faz/i] },
+  { intent: "domain", patterns: [/domínio|dominio|dns|site n[aã]o entra|n[aã]o abre|offline|fora do ar|hosped|url n/i] },
+  { intent: "support", patterns: [/problema|erro|bug|ajuda|suporte|n[aã]o funciona|travou|quebr|mano meu/i] },
+  { intent: "automation", patterns: [/automa|workflow|mensagem autom|whatsapp|instagram dm/i] },
+  { intent: "demo", patterns: [/demo|agendar|reuni[aã]o|call|conversar|marcar|hor[aá]rio/i] },
+  { intent: "complaint", patterns: [/p[eé]ssimo|horr[ií]vel|demora|frustrad|irritad|reclama|lixo|merda/i] },
   {
     intent: "follow_up",
     patterns: [
-      /^(sim|n[aã]o|ok|claro|pode ser|isso|esse|essa|ele|ela|eles|aquilo|disso)\b/i,
-      /\b(tem|inclui|vem com|possui)\b/i,
+      /^(sim|n[aã]o|ok|claro|pode ser|isso|esse|essa|ele|ela|eles|aquilo|disso|la|lá)\b/i,
+      /\b(tem|inclui|vem com|possui|da para|dá para|tb|tambem|também)\b/i,
     ],
   },
 ];
@@ -155,18 +167,31 @@ export function resolveContextTopic(
   if (intent === "domain") return "domain";
   if (intent === "support") return "support";
   if (intent === "automation") return "automation";
+  if (intent === "chatbot") return "chatbot";
+  if (intent === "crm") return "crm";
+  if (intent === "billing") return "billing";
+  if (intent === "account") return "account";
+  if (intent === "compare") return "compare";
   return context.lastTopic ?? "general";
 }
 
 export function resolveReferencedPlan(
   text: string,
   context: ConversationContext,
-  entities: string[]
+  entities: string[],
+  history?: ConversationTurn[]
 ): string | undefined {
   if (entities.length > 0) return entities[entities.length - 1];
   const n = normalizeText(text);
-  if (/^(ele|ela|esse|essa|nele|nela|o plano|disso)\b/.test(n)) {
+  if (/^(ele|ela|esse|essa|nele|nela|o plano|disso|isso|aquilo)\b/.test(n)) {
     return context.lastMentionedPlan;
+  }
+  if (history?.length) {
+    for (const turn of [...history].reverse()) {
+      for (const [alias, plan] of Object.entries(PLAN_ALIASES)) {
+        if (normalizeText(turn.text).includes(alias)) return plan;
+      }
+    }
   }
   return context.lastMentionedPlan;
 }
